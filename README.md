@@ -32,6 +32,7 @@ It is deliberately **not** a 3D art tool. Grey-box mannequins and vehicles at re
 - 🎛️ **39 classic camera moves** — orbits, cranes, drone follows, spirals, crash-zooms, the vertigo dolly-zoom — built around your subject and riding along if it moves.
 - 🌍 **Block inside real places** — import a Gaussian-splat / photogrammetry scan of a location (shot on your phone or any video-to-3D tool) and stage the action inside it. Scans are an editor aid — they never touch the export.
 - 📦 **Deterministic exports** — the same project renders byte-identical frames on every run. Playback performance never touches the output.
+- 🦴 **Point-by-point limb animation** — press `P` on a person and drag hands, feet, elbows, knees, head, or chest right in the viewport (IK moves the whole limb); each drag keys the pose at the playhead and the limbs blend between keys. Quick poses, mirror, copy/paste, per-key blend curves.
 - 🤖 **Agent-drivable** — a bundled MCP server lets Claude Code, Codex, or any MCP client stage and shoot the scene for you.
 
 ---
@@ -196,7 +197,6 @@ control descriptor to `~/.config/blockout/control.json` on macOS/Linux or
 both versioned and legacy descriptors. There are **33 tools** (from `get_state`
 and `add_entity` through `spawn_choreography`, `import_scan`, `apply_camera_move`,
 and `screenshot`).
->>>>>>> Stashed changes
 
 👉 **Full setup, the complete tool table, and a worked session: [mcp/README.md](mcp/README.md).**
 

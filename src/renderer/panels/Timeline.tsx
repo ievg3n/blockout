@@ -11,7 +11,7 @@ import type { PointerEvent as ReactPointerEvent } from 'react'
 import { useStore } from '../store'
 import { ShotEvaluator } from '@engine/evaluate'
 import { GAITS } from '@engine/gaits'
-import type { ActorMark, CameraMark, MarkBase, Scene, Shot } from '@engine/types'
+import type { ActorMark, CameraMark, MarkBase, PoseKey, Scene, Shot } from '@engine/types'
 
 const clamp = (v: number, lo: number, hi: number): number => Math.min(Math.max(v, lo), hi)
 
@@ -51,6 +51,7 @@ export function Timeline(): JSX.Element {
   const mutate = useStore((s) => s.mutate)
 
   const [drag, setDrag] = useState<DragState | null>(null)
+  const poseMode = useStore((s) => s.poseMode)
   const [panelHeight, setPanelHeight] = useState(240)
   const bodyRef = useRef<HTMLDivElement | null>(null)
 
@@ -129,7 +130,21 @@ export function Timeline(): JSX.Element {
     }
   }
 
-  const anyMarks = lanes.some((l) => l.marks.length > 0)
+  // Pose lanes: one per person with limb keys, plus the person being posed.
+  const poseLanes: { entityId: string; name: string; color: string; keys: PoseKey[] }[] = []
+  for (const pt of take?.poses ?? []) {
+    const entity = scene.entities.find((e) => e.id === pt.entityId)
+    if (!entity || pt.keys.length === 0) continue
+    poseLanes.push({ entityId: entity.id, name: entity.label?.text || entity.name, color: entity.label?.color ?? '#9b9ba6', keys: pt.keys })
+  }
+  if (poseMode && selection?.kind === 'entity' && !poseLanes.some((l) => l.entityId === selection.entityId)) {
+    const entity = scene.entities.find((e) => e.id === selection.entityId)
+    if (entity?.assetId.startsWith('person.')) {
+      poseLanes.push({ entityId: entity.id, name: entity.label?.text || entity.name, color: entity.label?.color ?? '#9b9ba6', keys: [] })
+    }
+  }
+
+  const anyMarks = lanes.some((l) => l.marks.length > 0) || poseLanes.length > 0
 
   /* ----------------------------- transport ------------------------------- */
   const onDuration = (e: React.ChangeEvent<HTMLInputElement>): void => {
@@ -249,7 +264,8 @@ export function Timeline(): JSX.Element {
     if (selection?.kind === 'mark' && selection.markId === markId) setSelection(null)
   }
 
-  const playheadLeft = `${(clamp(time, 0, duration) / duration) * 100}%`
+  // Lanes start after the 140px label column (same offset as the ruler).
+  const playheadLeft = `calc(140px + (100% - 140px) * ${clamp(time, 0, duration) / duration})`
 
   return (
     <div className="timeline" style={{ height: panelHeight }}>
@@ -354,6 +370,26 @@ export function Timeline(): JSX.Element {
             />
           </div>
         ))}
+        {poseLanes.map((pl) => (
+          <div className="timeline-track pose-track" key={`pose-${pl.entityId}`}>
+            <span
+              className="timeline-track-label"
+              style={{ cursor: 'pointer' }}
+              title="Limb animation keys — click to select this person"
+              onClick={() => setSelection({ kind: 'entity', entityId: pl.entityId })}
+            >
+              <span style={{ color: pl.color, flexShrink: 0 }}>🦴</span>
+              {pl.name}
+            </span>
+            <PoseLane
+              entityId={pl.entityId}
+              keys={pl.keys}
+              duration={duration}
+              time={time}
+              laneWidth={laneWidth}
+            />
+          </div>
+        ))}
         {!anyMarks && (
           <div className="timeline-empty">
             Select the camera or an actor and press M, then click the floor to drop marks.
@@ -454,4 +490,80 @@ function findMarkInDoc(
   const take = scene.blocking.find((b) => b.id === shot.blockingTakeId)
   const track = take?.tracks.find((t) => t.entityId === entityId)
   return track?.marks.find((m) => m.id === markId) ?? null
+}
+
+/**
+ * Pose-key lane: ◆ per limb key. Click jumps the playhead there (and selects
+ * the person so the inspector edits that key); drag retimes; double-click
+ * deletes. Retiming commits one undoable step on release.
+ */
+function PoseLane({
+  entityId,
+  keys,
+  duration,
+  time,
+  laneWidth
+}: {
+  entityId: string
+  keys: PoseKey[]
+  duration: number
+  time: number
+  laneWidth: () => number
+}): JSX.Element {
+  const [dragging, setDragging] = useState<{ keyId: string; time: number } | null>(null)
+
+  const begin = (key: PoseKey, e: ReactPointerEvent<HTMLElement>): void => {
+    e.stopPropagation()
+    const s = useStore.getState()
+    const target = e.currentTarget
+    target.setPointerCapture(e.pointerId)
+    const w = laneWidth()
+    const startX = e.clientX
+    let t = key.time
+    let moved = false
+    s.setPlaying(false)
+    if (s.selection?.kind !== 'entity' || s.selection.entityId !== entityId) {
+      s.setSelection({ kind: 'entity', entityId })
+    }
+    s.setTime(key.time)
+    const onMove = (ev: PointerEvent): void => {
+      if (Math.abs(ev.clientX - startX) < 3 && !moved) return
+      moved = true
+      t = clamp(key.time + ((ev.clientX - startX) / w) * duration, 0, duration)
+      setDragging({ keyId: key.id, time: t })
+      useStore.getState().setTime(t)
+    }
+    const onUp = (): void => {
+      target.removeEventListener('pointermove', onMove)
+      target.removeEventListener('pointerup', onUp)
+      target.removeEventListener('pointercancel', onUp)
+      setDragging(null)
+      if (moved) useStore.getState().movePoseKey(entityId, key.id, t)
+    }
+    target.addEventListener('pointermove', onMove)
+    target.addEventListener('pointerup', onUp)
+    target.addEventListener('pointercancel', onUp)
+  }
+
+  return (
+    <div className="timeline-track-lane pose-lane">
+      {keys.map((key) => {
+        const t = dragging?.keyId === key.id ? dragging.time : key.time
+        const current = Math.abs(key.time - time) < 1 / 120
+        return (
+          <div
+            key={key.id}
+            className={`pose-key${current ? ' current' : ''}`}
+            style={{ left: `${(t / duration) * 100}%` }}
+            title={`Pose key ${key.time.toFixed(2)}s (${key.interp ?? 'smooth'}) — drag to retime, double-click to delete`}
+            onPointerDown={(e) => begin(key, e)}
+            onDoubleClick={(e) => {
+              e.stopPropagation()
+              useStore.getState().deletePoseKey(entityId, key.id)
+            }}
+          />
+        )
+      })}
+    </div>
+  )
 }

@@ -6,6 +6,7 @@
 
 import { useCallback, useEffect } from 'react'
 import { useStore, currentProjectJson } from './store'
+import { evaluatePoseKeys, sortPoseKeys } from '@engine/pose'
 import { Viewport } from './viewport/Viewport'
 import { Library } from './panels/Library'
 import { Inspector } from './panels/Inspector'
@@ -14,6 +15,7 @@ import { Timeline } from './panels/Timeline'
 import { DeliverPanel } from './panels/DeliverPanel'
 import { Toasts } from './panels/Toasts'
 import { HelpOverlay, BlockingCoach } from './panels/Help'
+import { PanelResizer } from './panels/PanelResizer'
 import logoUrl from './assets/logo.png'
 import { DISTRIBUTION } from '../shared/distribution'
 
@@ -180,11 +182,36 @@ function useKeyboard(): void {
         // Toggle everywhere except Deliver (which is always the shot view) —
         // being stuck in look-through with no exit was a real trap.
         if (s.mode !== 'deliver') s.setLookThrough(!s.lookThrough)
+      } else if ((e.key === 'p' || e.key === 'P') && !meta) {
+        // Pose tool: grab hands, feet, elbows, knees, head, chest in the viewport.
+        if (s.mode === 'deliver') return
+        if (s.poseMode) {
+          s.setPoseMode(false)
+          return
+        }
+        const sel = s.selection
+        const entity = sel?.kind === 'entity' ? s.scene()?.entities.find((x) => x.id === sel.entityId) : undefined
+        if (entity?.assetId.startsWith('person.')) s.setPoseMode(true)
+        else s.toast('Select a person first, then press P to pose their limbs.', 'info')
+      } else if ((e.key === 'k' || e.key === 'K') && !meta) {
+        // Key the current pose at the playhead (Shoot) — a hold/anchor key.
+        const sel = s.selection
+        if (s.mode !== 'shoot' || sel?.kind !== 'entity') return
+        const entity = s.scene()?.entities.find((x) => x.id === sel.entityId)
+        if (!entity?.assetId.startsWith('person.')) return
+        const track = s.poseTrack(entity.id)
+        const current = track ? (evaluatePoseKeys(sortPoseKeys(track.keys), s.time) ?? {}) : {}
+        s.setPoseKey(entity.id, s.time, current)
+        s.toast(`Pose keyed at ${s.time.toFixed(2)}s.`, 'success')
       } else if (e.key === '?') {
         s.setHelpOpen(!s.helpOpen)
       } else if (e.key === 'Escape') {
         if (s.helpOpen) {
           s.setHelpOpen(false)
+          return
+        }
+        if (s.poseMode) {
+          s.setPoseMode(false)
           return
         }
         s.setPlacingAsset(null)
@@ -212,6 +239,7 @@ export function App(): JSX.Element {
   const dirty = useStore((s) => s.dirty)
   const markSaved = useStore((s) => s.markSaved)
   const folder = useStore((s) => s.projectFolder)
+  const widths = useStore((s) => s.panelWidths)
 
   useAutosave()
   useKeyboard()
@@ -269,14 +297,15 @@ export function App(): JSX.Element {
       </div>
 
       {mode === 'deliver' ? (
-        <div className="deliver-layout">
+        <div className="deliver-layout" style={{ gridTemplateColumns: `1fr ${widths.deliver}px` }}>
           <div className="deliver-preview">
             <Viewport />
           </div>
           <DeliverPanel />
+          <PanelResizer side="deliver" />
         </div>
       ) : (
-        <div className="main">
+        <div className="main" style={{ gridTemplateColumns: `${widths.left}px 1fr ${widths.right}px` }}>
           <div className="panel">
             <ProjectRail />
             {mode === 'stage' && <Library />}
@@ -291,6 +320,8 @@ export function App(): JSX.Element {
           <div className="panel right">
             <Inspector />
           </div>
+          <PanelResizer side="left" />
+          <PanelResizer side="right" />
         </div>
       )}
       <Toasts />

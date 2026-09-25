@@ -108,8 +108,24 @@ const TASKS: { area: string; items: Task[] }[] = [
         q: 'How do I pose someone without animating?',
         a: (
           <>
-            Use the inspector&apos;s <b>Pose</b> section — Stand, Sit, Crouch, Lie, Talk, Fallen.
-            Open <b>Pose limbs</b> for 14 sliders to build fight or dance stances.
+            Use the inspector&apos;s <b>Body pose</b> section — Stand, Sit, Crouch, Lie, Talk, Fallen.
+            In <b>STAGE</b>, press <Kbd>P</Kbd> and drag the hands, feet, elbows, knees, head, or
+            chest in the viewport — or use the <b>Pose &amp; limb animation</b> sliders and quick
+            poses. Stage poses hold for the whole shot.
+          </>
+        )
+      },
+      {
+        q: 'How do I animate arms, legs, and head point by point?',
+        a: (
+          <>
+            In <b>SHOOT</b>, select a person and press <Kbd>P</Kbd>: coloured handles appear on the
+            joints (blue = left, red = right). Drag a hand or foot and the whole limb follows —
+            that <b>keys the pose at the playhead</b>. Move the playhead, drag again, press ▶: the
+            limbs blend between keys. Keys show as ◆ on the timeline — drag to retime, double-click
+            to delete. <Kbd>K</Kbd> keys the current pose; <b>Mirror</b>, <b>Copy</b>/<b>Paste</b>{' '}
+            and <b>Blend</b> (smooth / ease / linear / hold) are in the inspector. Pose keys layer on
+            top of walking and fight/dance presets.
           </>
         )
       },
@@ -510,6 +526,8 @@ const SHORTCUTS: [string, string][] = [
   ['Space', 'Play / pause the shot'],
   ['M', 'Drop marks for the selection (click the floor)'],
   ['C', 'Look through the shot camera'],
+  ['P', 'Pose tool: drag a selected person\'s joints (IK)'],
+  ['K', 'Key the current pose at the playhead (Shoot)'],
   ['G / R', 'Gizmo: move / rotate'],
   ['⇧-click', 'Multi-select entities, or marks on the timeline'],
   [`${MOD}A / ⇧${MOD}A`, 'Select all marks in the shot / in the current lane'],
@@ -519,7 +537,8 @@ const SHORTCUTS: [string, string][] = [
   [`${MOD}S`, 'Save project'],
   ['1–9', 'Jump to camera mark N'],
   [`${ALT}-click`, 'Place multiple copies while staging'],
-  ['Esc', 'Cancel placement / mark-dropping / selection'],
+  ['Esc', 'Exit pose tool / cancel placement / mark-dropping / selection'],
+  ['Panel edges', 'Drag to resize the side panels (double-click resets)'],
   ['?', 'Open this help']
 ]
 

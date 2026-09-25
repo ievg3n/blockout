@@ -1,3 +1,4 @@
+// Modified in 2026 for pose animation and resizable panels; see MODIFICATIONS.md.
 /**
  * Context-sensitive right panel. Content is driven by store.selection and the
  * current mode: nothing selected → scene/lighting/shot; an entity, the shot
@@ -18,6 +19,7 @@ import { ACTION_PRESETS } from '@engine/action-presets'
 import { ShotEvaluator } from '@engine/evaluate'
 import { newId } from '@engine/ids'
 import { getSceneManager } from '../export/scene-access'
+import { JointSliders, PoseToolSection } from './PosePanel'
 import type {
   ActorMark,
   CameraMark,
@@ -732,6 +734,7 @@ function EntityInspector({
       </div>
 
       {isPerson && <PoseSection entity={entity} editEntity={editEntity} />}
+      {isPerson && <PoseToolSection entity={entity} />}
 
       <MarriageSection scene={scene} entity={entity} />
 
@@ -821,6 +824,7 @@ function EntityInspector({
               sc.entities = sc.entities.filter((e) => e.id !== entityId)
               for (const take2 of sc.blocking) {
                 take2.tracks = take2.tracks.filter((t) => t.entityId !== entityId)
+                if (take2.poses) take2.poses = take2.poses.filter((p) => p.entityId !== entityId)
               }
               // Unmount any camera parented to the deleted entity — its
               // local-frame marks would otherwise re-base to world space.
@@ -1182,6 +1186,7 @@ function MultiEntityInspector({
               // Clean blocking tracks for the removed entities.
               for (const take of sc.blocking) {
                 take.tracks = take.tracks.filter((t) => !idSet.has(t.entityId))
+                if (take.poses) take.poses = take.poses.filter((p) => !idSet.has(p.entityId))
               }
               // Widow any attachedTo pointers into the removed set.
               for (const e of sc.entities) {
@@ -1958,29 +1963,6 @@ const POSES: { id: GaitId; label: string }[] = [
   { id: 'fall', label: 'Fallen' }
 ]
 
-const JOINTS: { key: string; label: string; range: number }[] = [
-  { key: 'shoulderLX', label: 'L arm fwd', range: 180 },
-  { key: 'shoulderRX', label: 'R arm fwd', range: 180 },
-  { key: 'shoulderLZ', label: 'L arm out', range: 150 },
-  { key: 'shoulderRZ', label: 'R arm out', range: 150 },
-  { key: 'elbowL', label: 'L elbow', range: 150 },
-  { key: 'elbowR', label: 'R elbow', range: 150 },
-  { key: 'hipLX', label: 'L leg', range: 120 },
-  { key: 'hipRX', label: 'R leg', range: 120 },
-  { key: 'hipLZ', label: 'L leg out', range: 90 },
-  { key: 'hipRZ', label: 'R leg out', range: 90 },
-  { key: 'kneeL', label: 'L knee', range: 150 },
-  { key: 'kneeR', label: 'R knee', range: 150 },
-  { key: 'torsoX', label: 'Torso lean', range: 60 },
-  { key: 'torsoY', label: 'Torso twist', range: 80 },
-  { key: 'torsoZ', label: 'Torso tilt', range: 50 },
-  { key: 'headY', label: 'Head turn', range: 80 },
-  { key: 'headX', label: 'Head nod', range: 45 },
-  { key: 'headZ', label: 'Head tilt', range: 45 }
-]
-
-const DEG = 180 / Math.PI
-
 function PoseSection({
   entity,
   editEntity
@@ -1989,13 +1971,10 @@ function PoseSection({
   editEntity: (label: string, fn: (e: Entity) => void) => void
 }): JSX.Element {
   const pose = typeof entity.params?.pose === 'string' ? entity.params.pose : 'stand'
-  const hasOverrides = Object.keys(entity.params ?? {}).some(
-    (k) => k.startsWith('joint_') && entity.params![k] !== 0
-  )
 
   return (
     <div className="panel-section">
-      <div className="panel-title">Pose</div>
+      <div className="panel-title">Body pose</div>
       <div className="seg gait-grid" style={{ marginBottom: 10 }}>
         {POSES.map((p) => (
           <button
@@ -2014,53 +1993,6 @@ function PoseSection({
       <p style={{ color: 'var(--text-faint)', fontSize: 11, lineHeight: 1.4, marginBottom: 8 }}>
         The pose applies while the actor has no marks; marks override it with their own gait.
       </p>
-      <details open={hasOverrides}>
-        <summary
-          style={{ cursor: 'pointer', fontSize: 11, fontWeight: 600, color: 'var(--text-dim)', marginBottom: 8 }}
-        >
-          Pose limbs (fight / dance blocking)
-        </summary>
-        {JOINTS.map((j) => {
-          const raw = entity.params?.[`joint_${j.key}`]
-          const rad = typeof raw === 'number' ? raw : 0
-          const deg = Math.round(rad * DEG)
-          return (
-            <div className="field" key={j.key} style={{ marginBottom: 6 }}>
-              <label>
-                {j.label} ({deg}°)
-              </label>
-              <input
-                type="range"
-                min={-j.range}
-                max={j.range}
-                step={1}
-                value={deg}
-                onChange={(e) => {
-                  const v = Number(e.target.value)
-                  if (Number.isNaN(v)) return
-                  editEntity('pose joint', (en) => {
-                    en.params = { ...en.params, [`joint_${j.key}`]: v / DEG }
-                  })
-                }}
-              />
-            </div>
-          )
-        })}
-        <button
-          className="btn small"
-          style={{ width: '100%', marginTop: 4 }}
-          onClick={() =>
-            editEntity('reset pose', (en) => {
-              if (!en.params) return
-              for (const k of Object.keys(en.params)) {
-                if (k.startsWith('joint_')) delete en.params[k]
-              }
-            })
-          }
-        >
-          Reset limbs
-        </button>
-      </details>
     </div>
   )
 }
@@ -2068,7 +2000,7 @@ function PoseSection({
 /**
  * Pose at a mark: joint offsets held at this mark and interpolated between
  * marks by the evaluator — keyframed limb choreography (fights, dances).
- * Reuses the same JOINTS table as the entity-level PoseSection.
+ * Uses the shared JOINT_DEFS table (engine/pose.ts).
  */
 function MarkPoseSection({
   mark,
@@ -2092,32 +2024,16 @@ function MarkPoseSection({
         >
           Joint keyframes
         </summary>
-        {JOINTS.map((j) => {
-          const rad = mark.joints?.[j.key] ?? 0
-          const deg = Math.round(rad * DEG)
-          return (
-            <div className="field" key={j.key} style={{ marginBottom: 6 }}>
-              <label>
-                {j.label} ({deg}°)
-              </label>
-              <input
-                type="range"
-                min={-j.range}
-                max={j.range}
-                step={1}
-                value={deg}
-                onChange={(e) => {
-                  const v = Number(e.target.value)
-                  if (Number.isNaN(v)) return
-                  editMark('mark pose', (m) => {
-                    const am = m as ActorMark
-                    am.joints = { ...am.joints, [j.key]: v / DEG }
-                  })
-                }}
-              />
-            </div>
-          )
-        })}
+        <JointSliders
+          idPrefix={`mark-${mark.id}`}
+          values={mark.joints ?? {}}
+          onChange={(key, v) =>
+            editMark('mark pose', (m) => {
+              const am = m as ActorMark
+              am.joints = { ...am.joints, [key]: v }
+            })
+          }
+        />
         <button
           className="btn small"
           style={{ width: '100%', marginTop: 4 }}

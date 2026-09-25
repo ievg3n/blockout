@@ -10,8 +10,11 @@ test-results/
 playwright-report/
 coverage/
 *.local
+<<<<<<< HEAD
+=======
 vendor/ffmpeg/win-x64/
 vendor/ffmpeg/macos-*/
 
 # iCloud sync duplicates ("file 2.ts") must never be committed
 * [0-9].*
+>>>>>>> origin/main

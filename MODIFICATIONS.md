@@ -15,6 +15,20 @@ Portable desktop work added in 2026, contributed by
 - Process-tree-aware export cancellation and cross-platform FFmpeg concat files.
 - Windows/macOS/Linux CI, packaging provenance, third-party notices, and SBOM generation.
 
+Pose animation and editor work added in 2026 in the
+[ievg3n/blockout](https://github.com/ievg3n/blockout) fork:
+
+- Point-by-point limb animation for people: a viewport pose tool with IK joint
+  handles, pose keys on the shot clock (`BlockingTake.poses`), a timeline pose
+  lane, quick poses, mirror/copy/paste, and MCP `set_pose_key` /
+  `list_pose_joints` (new: `src/engine/pose.ts`,
+  `src/renderer/viewport/pose-ik.ts`, `src/renderer/panels/PosePanel.tsx`).
+- Person rig: wrist and ankle joints, body height, and corrected X-axis and
+  shoulder/hip abduction signs so motion presets render as documented.
+- Drag-resizable side panels (new: `src/renderer/panels/PanelResizer.tsx`) and
+  a timeline playhead offset fix.
+- Reference analysis on `claude-opus-5` with server-side refusal fallback.
+
 Downstream distributors should append their own branding and behavioral changes
 to this file rather than replacing the original attribution.
 

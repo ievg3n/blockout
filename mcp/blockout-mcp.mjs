@@ -363,6 +363,33 @@ const TOOLS = [
     }
   },
   {
+    name: 'list_pose_joints',
+    description:
+      'List the posable person joints (key, label, group, slider range; degrees except bodyY in meters) and the quick-pose presets for set_pose_key.',
+    inputSchema: { type: 'object', properties: {}, additionalProperties: false }
+  },
+  {
+    name: 'set_pose_key',
+    description:
+      'Keyframe a person\'s limbs at a time: point-by-point animation of hands, legs, head, torso. Joints are in DEGREES (bodyY in meters) — e.g. {"shoulderRX": -90, "elbowR": 10} punches forward with the right arm. By default merges into the pose already playing at that time; pass presetId to start from a quick pose. Keys at other times interpolate smoothly.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        entityId: { type: 'string', description: 'Person entity id from get_state.' },
+        time: { type: 'number', description: 'Shot time in seconds (default: playhead).' },
+        joints: {
+          type: 'object',
+          description: 'Joint key → value (degrees; bodyY meters). Keys from list_pose_joints.',
+          additionalProperties: { type: 'number' }
+        },
+        presetId: { type: 'string', description: 'Optional quick-pose id to start from (list_pose_joints).' },
+        merge: { type: 'boolean', description: 'false = start from neutral instead of the current pose.' }
+      },
+      required: ['entityId'],
+      additionalProperties: false
+    }
+  },
+  {
     name: 'set_time',
     description: 'Scrub the timeline playhead to time t (seconds).',
     inputSchema: {

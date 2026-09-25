@@ -1,3 +1,4 @@
+// Modified in 2026 for pose animation and resizable panels; see MODIFICATIONS.md.
 /**
  * The heart of Blockout: state(t).
  *
@@ -13,6 +14,7 @@ import { verticalFov } from './camera'
 import { easedProgress, lerp, lerpAngle, smoothstep } from './easing'
 import { GAITS, checkSpeed, type SpeedVerdict } from './gaits'
 import { Path, headingOf } from './path'
+import { addJoints, evaluatePoseKeys, sortPoseKeys } from './pose'
 import { RigNoise } from './rigs'
 import type {
   ActorMark,
@@ -24,6 +26,7 @@ import type {
   MarkBase,
   Scene,
   Shot,
+  PoseKey,
   ShotState,
   V3
 } from './types'
@@ -198,7 +201,15 @@ export class ShotEvaluator {
       }
     }
     this.staticEntities = scene.entities.filter((e) => !tracked.has(e.id))
+    for (const track of take?.poses ?? []) {
+      if (track.keys.length === 0) continue
+      if (!scene.entities.some((e) => e.id === track.entityId)) continue
+      this.poseKeys.set(track.entityId, sortPoseKeys(track.keys))
+    }
   }
+
+  /** Time-sorted pose keys per entity (point-by-point limb animation). */
+  private poseKeys = new Map<string, PoseKey[]>()
 
   /** First mark time per tracked entity (marriage applies before this). */
   private trackFirstTime = new Map<string, number>()
@@ -322,6 +333,14 @@ export class ShotEvaluator {
 
     this.resolveBoardings(entities, time)
     this.resolveMarriages(entities, time)
+
+    // Pose keys layer on top of whatever the marks (or a boarding) set.
+    if (this.poseKeys.size > 0) {
+      for (const es of entities) {
+        const keys = this.poseKeys.get(es.entityId)
+        if (keys) es.joints = addJoints(es.joints, evaluatePoseKeys(keys, time))
+      }
+    }
 
     return { time, camera: this.evaluateCamera(time, entities), entities }
   }

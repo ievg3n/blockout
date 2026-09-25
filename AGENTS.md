@@ -54,14 +54,14 @@ assets/         (profiles as code in engine/profiles.ts; 3D assets are procedura
 1. **Engine purity**: `src/engine/` must never import DOM/three/Electron. It runs in Vitest under Node.
 2. **Determinism**: nothing on the `state(t)` path may use `Math.random()` (unseeded), `Date.now()`, or accumulate state frame-to-frame. Rig shake uses the seed stored on the shot. The smoke suite has a byte-determinism test that will catch violations.
 3. **All document mutations go through `store.mutate(label, fn)`** or an existing store action — never assign into `store.doc` directly (breaks undo and dirty tracking).
-4. **Conventions**: meters, seconds, radians. Heading 0 faces −Z and `object.rotation.y = heading` (see `headingOf` in `src/engine/path.ts`). Models are built facing −Z with origin at ground.
+4. **Conventions**: meters, seconds, radians. Heading 0 faces −Z and `object.rotation.y = heading` (see `headingOf` in `src/engine/path.ts`). Models are built facing −Z with origin at ground. Person joint keys and their signs (shoulder?X negative raises forward, shoulder?Z/hip?Z positive lifts out, elbow/knee positive bends, `bodyY` in meters) are defined once in `JOINT_DEFS` (`src/engine/pose.ts`) and mapped onto the rig in `animatePerson` (`builders.ts`).
 5. Exports must contain zero editor chrome (grid, gizmos, selection boxes, marks). `SceneManager.renderFrameAt` handles this — preserve that behavior.
 
 ## Automation surface (driving the running app)
 
 The renderer exposes `window.__blockout` (not a public API — for tests/agents):
 
-- `__blockout.store` — the zustand store. `getState()` gives you every action: `addEntity(assetId, pos)`, `dropActorMark(entityId, pos)`, `dropCameraMark(pos, pan, tilt, focal)`, `setTime(t)`, `setMode(...)`, `mutate(label, fn)`, `scene()`, `shot()`; round-3 additions: `marryEntities(childIds, parentId)` / `unmarryEntities(ids)`, `switchCamera(name)` / `addCameraToShot()` / `clearCameraMarks()`, `saveDraftOfShot()` / `promoteDraft(id)` / `deleteDraft(id)`, `toggleEntitySelected(id)` / `toggleMarkSelected(entityId, markId)`, `setRecording(bool)` (records the selected performer, or the camera — playback-synced when other motion exists).
+- `__blockout.store` — the zustand store. `getState()` gives you every action: `addEntity(assetId, pos)`, `dropActorMark(entityId, pos)`, `dropCameraMark(pos, pan, tilt, focal)`, `setTime(t)`, `setMode(...)`, `mutate(label, fn)`, `scene()`, `shot()`; pose: `setPoseMode(bool)`, `setPoseKey(entityId, t, joints)`, `poseTrack(entityId)`, `setStaticPose(entityId, joints)`; round-3 additions: `marryEntities(childIds, parentId)` / `unmarryEntities(ids)`, `switchCamera(name)` / `addCameraToShot()` / `clearCameraMarks()`, `saveDraftOfShot()` / `promoteDraft(id)` / `deleteDraft(id)`, `toggleEntitySelected(id)` / `toggleMarkSelected(entityId, markId)`, `setRecording(bool)` (records the selected performer, or the camera — playback-synced when other motion exists).
 - `__blockout.exportShot({profileId, passes, labels})` — run a real export; resolves `{ok, packagePath}`.
 - `__blockout.renderStillPngForTest(t, w, h)` / `renderRawForTest(t, w, h)` — deterministic frame renders.
 - `window.__blockout_scene` — the live SceneManager (transform gizmo, freeCam, shotCam) for interaction tests; see `tests/e2e/interaction.spec.ts` for real-mouse gizmo-drag and camera-recording patterns.
@@ -73,6 +73,7 @@ Headless/dialog-free driving: launch with env `BLOCKOUT_SMOKE_DIR=/some/dir` —
 - **Add a generator profile**: edit `BUILTIN_PROFILES` in `src/engine/profiles.ts` (see `docs/generator-profiles.md`). Add a prompt test in `tests/unit/schema.test.ts`.
 - **Add a library asset**: add a catalog entry in `src/engine/assets.ts` (id, height, speedScale, motion), a builder case in `src/renderer/viewport/builders.ts` (grey-box, deterministic, forward −Z), and an emoji thumb in `src/renderer/panels/Library.tsx`.
 - **Add an export pass**: extend `RenderPass` in `SceneManager.renderFrameAt`, wire a toggle in `DeliverPanel.tsx` and the pass loop in `export/exporter.ts`.
+- **Pose / limb animation**: `BlockingTake.poses` holds per-person `PoseKey`s on the shot clock (`src/engine/pose.ts`: interpolation, mirror, presets; tests in `tests/unit/pose.test.ts`). The evaluator layers them on mark joints; the renderer layers both on `joint_*` params. The viewport pose tool (P) lives in `SceneManager` (handles, drag, commit) + `viewport/pose-ik.ts` (DLS IK that drives the real rig via `animate()`); the inspector UI is `panels/PosePanel.tsx`. Pose edits commit through `store.setPoseKey` (Shoot) or `store.setStaticPose` (Stage).
 - **Change the document schema**: bump nothing lightly — update types in `engine/types.ts`, factories/validation in `engine/schema.ts`, and the round-trip test. Never break `parseProject` on existing files; migrate instead.
 
 ## Agent control (MCP)
@@ -127,6 +128,8 @@ claude mcp add blockout -- node /ABSOLUTE/PATH/TO/blockout/mcp/blockout-mcp.mjs
 | `screenshot` | — | Current viewport as a PNG (image result) |
 | `list_presets` / `save_preset` / `apply_preset` | — / `name` / `id` | Global stage presets |
 | `set_reference` | `videoPath, handoffVersion?, mode?, opacity?` | Attach a reference clip (copied into `refs/`) as a ghost/PIP underlay. Motion sends handoff v1; missing stays legacy-compatible. |
+| `list_pose_joints` | — | Posable person joints (degrees; `bodyY` meters) + quick-pose presets |
+| `set_pose_key` | `entityId, time?, joints?, presetId?, merge?` | Key a person's limbs at a time (point-by-point hand/leg/head animation) |
 
 **Example (Claude Code):**
 

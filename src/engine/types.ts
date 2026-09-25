@@ -1,3 +1,4 @@
+// Modified in 2026 for pose animation and resizable panels; see MODIFICATIONS.md.
 /**
  * Blockout document model.
  *
@@ -156,6 +157,27 @@ export interface EntityTrack {
   marks: ActorMark[]
 }
 
+/** How a pose key blends toward the NEXT key (see engine/pose.ts). */
+export type PoseInterp = 'smooth' | 'ease' | 'linear' | 'step'
+
+/**
+ * A limb keyframe on the shot clock — independent of travel marks, so a
+ * hand, leg, or head can be animated at any moment. `joints` is a full pose:
+ * joints it doesn't list read as 0. Values are radians except bodyY (meters).
+ */
+export interface PoseKey {
+  id: string
+  time: number
+  joints: Record<string, number>
+  /** Blend toward the next key; default 'smooth'. */
+  interp?: PoseInterp
+}
+
+export interface PoseTrack {
+  entityId: string
+  keys: PoseKey[]
+}
+
 /**
  * A blocking take: the choreography of every moving entity. Scene owns takes;
  * shots reference one, so coverage shares blocking. A shot that needs a
@@ -165,6 +187,8 @@ export interface BlockingTake {
   id: string
   name: string
   tracks: EntityTrack[]
+  /** Point-by-point limb animation per person (layered on mark joints). */
+  poses?: PoseTrack[]
 }
 
 export interface ShotCamera {
@@ -298,7 +322,10 @@ export interface EntityState {
   distanceTravelled: number
   /** Current speed m/s (0 when holding). */
   speed: number
-  /** Interpolated per-joint pose offsets from the marks (radians). */
+  /**
+   * Per-joint pose offsets: mark joints interpolated between marks, plus the
+   * entity's pose-key track at t (radians; bodyY in meters).
+   */
   joints?: Record<string, number>
 }
 
