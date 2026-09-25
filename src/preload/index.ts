@@ -6,6 +6,8 @@
 import { contextBridge, ipcRenderer } from 'electron'
 
 export interface BlockoutAPI {
+  /** Host OS ('darwin' | 'win32' | 'linux') — for platform-specific chrome. */
+  platform: string
   newProjectDialog(): Promise<string | null>
   openProjectDialog(): Promise<string | null>
   pickFile(filters: { name: string; extensions: string[] }[]): Promise<string | null>
@@ -103,7 +105,8 @@ const api: BlockoutAPI = {
   },
   controlResult: (id, result) => ipcRenderer.send('control:result', id, result),
   versions: () => ipcRenderer.invoke('app:versions'),
-  analyzeReference: (filePath) => ipcRenderer.invoke('ai:analyzeReference', filePath)
+  analyzeReference: (filePath) => ipcRenderer.invoke('ai:analyzeReference', filePath),
+  platform: process.platform
 }
 
 contextBridge.exposeInMainWorld('blockout', api)

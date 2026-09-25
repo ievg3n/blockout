@@ -126,6 +126,18 @@ export function validateProject(doc: unknown): ValidationIssue[] {
     if (!Array.isArray(scene.entities)) err(`scenes[${i}].entities`, 'missing entities')
     if (!Array.isArray(scene.blocking) || (scene.blocking as unknown[]).length === 0)
       err(`scenes[${i}].blocking`, 'scene needs at least one blocking take')
+    if (Array.isArray(scene.blocking)) {
+      (scene.blocking as unknown[]).forEach((b: unknown, k: number) => {
+        const poses = (b as { poses?: unknown } | null)?.poses
+        if (poses === undefined) return
+        if (!Array.isArray(poses)) return err(`scenes[${i}].blocking[${k}].poses`, 'poses must be an array')
+        poses.forEach((pt: unknown, m: number) => {
+          const track = pt as { entityId?: unknown; keys?: unknown } | null
+          if (typeof track?.entityId !== 'string' || !Array.isArray(track.keys))
+            err(`scenes[${i}].blocking[${k}].poses[${m}]`, 'pose track needs entityId and keys')
+        })
+      })
+    }
     if (!Array.isArray(scene.shots)) err(`scenes[${i}].shots`, 'missing shots')
     else {
       const takeIds = new Set(

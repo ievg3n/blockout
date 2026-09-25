@@ -23,12 +23,48 @@ export interface AnimInput {
   /** Shot time in seconds — for idle motions (gesture sway, club lights). */
   time: number
   /**
-   * Per-joint pose offsets in radians, applied AFTER the gait pose (people
-   * only). Keys: shoulderLX/RX (arm forward/up, negative raises), shoulderLZ/RZ
-   * (arm out to the side), elbowL/R (bend), hipLX/RX (leg forward/back),
-   * kneeL/R (bend), torsoX (lean), torsoY (twist), headX (nod), headY (turn).
+   * Per-joint pose offsets, applied AFTER the gait pose (people only).
+   * Radians, except bodyY (meters). Keys and sign conventions: JOINT_DEFS in
+   * engine/pose.ts (shoulder?X negative raises forward, shoulder?Z positive
+   * lifts out, elbow?/knee? positive bends, …).
    */
   overrides?: Record<string, number>
+}
+
+/**
+ * Articulated person rig exposed for direct limb posing (IK handles in the
+ * viewport). Joint groups are the live three.js nodes animatePerson drives;
+ * the effector anchors sit at the hands, feet, head top, and chest.
+ */
+export interface PersonRig {
+  joints: {
+    root: THREE.Group
+    pelvis: THREE.Group
+    torso: THREE.Group
+    head: THREE.Group
+    shoulderL: THREE.Group
+    shoulderR: THREE.Group
+    elbowL: THREE.Group
+    elbowR: THREE.Group
+    wristL: THREE.Group
+    wristR: THREE.Group
+    hipL: THREE.Group
+    hipR: THREE.Group
+    kneeL: THREE.Group
+    kneeR: THREE.Group
+    ankleL: THREE.Group
+    ankleR: THREE.Group
+  }
+  anchors: {
+    handL: THREE.Object3D
+    handR: THREE.Object3D
+    footL: THREE.Object3D
+    footR: THREE.Object3D
+    head: THREE.Object3D
+    chest: THREE.Object3D
+  }
+  /** Last AnimInput applied — IK re-runs animate() with trial overrides. */
+  lastInput: AnimInput | null
 }
 
 export interface BuiltAsset {
@@ -39,6 +75,8 @@ export interface BuiltAsset {
   animate?: (input: AnimInput) => void
   /** Tint all meshes toward a hex color (label color), or restore original when null. */
   setTint: (color: string | null) => void
+  /** People only: posable skeleton for the viewport's pose tool. */
+  rig?: PersonRig
 }
 
 // ---------------------------------------------------------------------------
@@ -156,16 +194,22 @@ function numParam(params: Record<string, number | string> | undefined, key: stri
 
 interface PersonJoints {
   root: THREE.Group // child of group; we tip THIS for lie/fall, not the group
+  pelvis: THREE.Group
   torso: THREE.Group
   head: THREE.Group
   hipL: THREE.Group
   hipR: THREE.Group
   kneeL: THREE.Group
   kneeR: THREE.Group
+  ankleL: THREE.Group
+  ankleR: THREE.Group
   shoulderL: THREE.Group
   shoulderR: THREE.Group
   elbowL: THREE.Group
   elbowR: THREE.Group
+  wristL: THREE.Group
+  wristR: THREE.Group
+  pelvisY: number
   legLen: number
   scale: number
   baseLean: number // constant forward lean (elderly)
@@ -205,6 +249,9 @@ function buildPerson(assetId: string, params?: Record<string, number | string>):
   const torsoMesh = capsule(bodyW * 0.5, torsoLen * 0.7, 0x8f8f97)
   torsoMesh.position.y = torsoLen * 0.5
   torso.add(torsoMesh)
+  const chest = new THREE.Object3D()
+  chest.position.set(0, torsoLen * 0.62, 0)
+  torso.add(chest)
 
   // Neck + head.
   const head = grp(0, torsoLen, 0)
@@ -215,12 +262,20 @@ function buildPerson(assetId: string, params?: Record<string, number | string>):
   const headMesh = sphere(headR, 0x94949c)
   headMesh.position.y = headR + 0.06 * s
   head.add(headMesh)
+  // Nose nub: shows which way the head faces (forward is -Z).
+  const nose = box(0.035 * s, 0.045 * s, 0.05 * s, 0x8a8a92)
+  nose.position.set(0, headR + 0.05 * s, -headR * 0.95)
+  head.add(nose)
+  const headTop = new THREE.Object3D()
+  headTop.position.set(0, headR * 2 + 0.06 * s, 0)
+  head.add(headTop)
 
   // Arms — shoulders at top of torso.
   const shoulderY = torsoLen * 0.92
   const armR = 0.055 * s * w
   const upperArmLen = torsoLen * 0.5
-  const lowerArmLen = torsoLen * 0.48
+  const lowerArmLen = torsoLen * 0.42
+  const handLen = 0.1 * s
 
   const mkArm = (side: number) => {
     const shoulder = grp(side * bodyW * 0.55, shoulderY, 0)
@@ -233,7 +288,15 @@ function buildPerson(assetId: string, params?: Record<string, number | string>):
     const lower = capsule(armR * 0.9, lowerArmLen * 0.7, 0x8c8c94)
     lower.position.y = -lowerArmLen * 0.5
     elbow.add(lower)
-    return { shoulder, elbow }
+    const wrist = grp(0, -lowerArmLen, 0)
+    elbow.add(wrist)
+    const hand = box(armR * 1.5, handLen, armR * 0.9, 0x96969e)
+    hand.position.y = -handLen * 0.5
+    wrist.add(hand)
+    const tip = new THREE.Object3D()
+    tip.position.y = -handLen * 0.6
+    wrist.add(tip)
+    return { shoulder, elbow, wrist, tip }
   }
   const armL = mkArm(-1)
   const armR2 = mkArm(1)
@@ -254,11 +317,16 @@ function buildPerson(assetId: string, params?: Record<string, number | string>):
     const lower = capsule(legR * 0.85, lowerLegLen * 0.7, 0x8a8a92)
     lower.position.y = -lowerLegLen * 0.5
     knee.add(lower)
-    // Foot.
+    // Ankle pivot just above the sole; the foot points forward (-Z).
+    const ankle = grp(0, -lowerLegLen + 0.06 * s, 0)
+    knee.add(ankle)
     const foot = box(legR * 2, 0.06 * s, 0.22 * s, 0x6f6f76)
-    foot.position.set(0, -lowerLegLen + 0.03 * s, -0.05 * s)
-    knee.add(foot)
-    return { hip, knee }
+    foot.position.set(0, -0.03 * s, -0.05 * s)
+    ankle.add(foot)
+    const sole = new THREE.Object3D()
+    sole.position.set(0, -0.03 * s, -0.02 * s)
+    ankle.add(sole)
+    return { hip, knee, ankle, sole }
   }
   const legL = mkLeg(-1)
   const legR3 = mkLeg(1)
@@ -267,50 +335,101 @@ function buildPerson(assetId: string, params?: Record<string, number | string>):
 
   const j: PersonJoints = {
     root,
+    pelvis,
     torso,
     head,
     hipL: legL.hip,
     hipR: legR3.hip,
     kneeL: legL.knee,
     kneeR: legR3.knee,
+    ankleL: legL.ankle,
+    ankleR: legR3.ankle,
     shoulderL: armL.shoulder,
     shoulderR: armR2.shoulder,
     elbowL: armL.elbow,
     elbowR: armR2.elbow,
+    wristL: armL.wrist,
+    wristR: armR2.wrist,
+    pelvisY,
     legLen,
     scale: s,
     baseLean
   }
 
+  const rig: PersonRig = {
+    joints: {
+      root,
+      pelvis,
+      torso,
+      head,
+      shoulderL: j.shoulderL,
+      shoulderR: j.shoulderR,
+      elbowL: j.elbowL,
+      elbowR: j.elbowR,
+      wristL: j.wristL,
+      wristR: j.wristR,
+      hipL: j.hipL,
+      hipR: j.hipR,
+      kneeL: j.kneeL,
+      kneeR: j.kneeR,
+      ankleL: j.ankleL,
+      ankleR: j.ankleR
+    },
+    anchors: {
+      handL: armL.tip,
+      handR: armR2.tip,
+      footL: legL.sole,
+      footR: legR3.sole,
+      head: headTop,
+      chest
+    },
+    lastInput: null
+  }
+
   const setTint = makeSetTint(group)
-  const animate = (input: AnimInput) => animatePerson(j, input)
+  const animate = (input: AnimInput) => {
+    rig.lastInput = input
+    animatePerson(j, input)
+  }
   // Prime a neutral pose.
   animate({ gait: 'stand', phase: 0, speed: 0, distance: 0, time: 0 })
 
-  return { group, height: H, animate, setTint }
+  return { group, height: H, animate, setTint, rig }
 }
 
 function resetPersonPose(j: PersonJoints): void {
   j.root.rotation.set(0, 0, 0)
   j.root.position.set(0, 0, 0)
+  j.pelvis.position.y = j.pelvisY
   j.torso.rotation.set(0, 0, 0)
   j.head.rotation.set(0, 0, 0)
   j.hipL.rotation.set(0, 0, 0)
   j.hipR.rotation.set(0, 0, 0)
   j.kneeL.rotation.set(0, 0, 0)
   j.kneeR.rotation.set(0, 0, 0)
+  j.ankleL.rotation.set(0, 0, 0)
+  j.ankleR.rotation.set(0, 0, 0)
   j.shoulderL.rotation.set(0, 0, 0)
   j.shoulderR.rotation.set(0, 0, 0)
   j.elbowL.rotation.set(0, 0, 0)
   j.elbowR.rotation.set(0, 0, 0)
+  j.wristL.rotation.set(0, 0, 0)
+  j.wristR.rotation.set(0, 0, 0)
 }
 
+/*
+ * Rig axes (the model faces -Z, +X is the character's right):
+ *   rotation.x > 0 swings a hanging limb FORWARD (toward -Z) and tips an
+ *   upright torso/head BACKWARD; rotation.z > 0 swings a hanging limb toward
+ *   +X. Joint-key conventions (engine/pose.ts) are mapped onto these below —
+ *   the gait code works in raw rig rotations.
+ */
 function animatePerson(j: PersonJoints, input: AnimInput): void {
   resetPersonPose(j)
   const t = input.time
   const p = input.phase
   const swing = Math.sin(p * TAU)
-  j.torso.rotation.x = j.baseLean
+  j.torso.rotation.x = -j.baseLean
 
   switch (input.gait) {
     case 'stand':
@@ -319,9 +438,9 @@ function animatePerson(j: PersonJoints, input: AnimInput): void {
       j.root.position.y = Math.sin(t * 1.5) * 0.005
       if (input.gait === 'gesture') {
         // One forearm raised, gently waving.
-        j.shoulderR.rotation.x = -2.3
+        j.shoulderR.rotation.x = 2.3
         j.elbowR.rotation.z = Math.sin(t * 2) * 0.3
-        j.elbowR.rotation.x = -0.4
+        j.elbowR.rotation.x = 0.4
       }
       break
     }
@@ -339,10 +458,12 @@ function animatePerson(j: PersonJoints, input: AnimInput): void {
       // Lower legs bend on the back-swing.
       j.kneeL.rotation.x = -Math.max(0, -Math.sin(p * TAU)) * 0.8
       j.kneeR.rotation.x = -Math.max(0, -Math.sin(p * TAU + Math.PI)) * 0.8
-      j.elbowL.rotation.x = -0.3
-      j.elbowR.rotation.x = -0.3
+      // Forearms carried slightly forward (running: tighter).
+      const elbow = input.gait === 'walk' ? 0.3 : 1.1
+      j.elbowL.rotation.x = elbow
+      j.elbowR.rotation.x = elbow
       j.root.position.y = Math.abs(swing) * bobAmp
-      if (input.gait === 'run') j.torso.rotation.x = j.baseLean + 0.15
+      if (input.gait === 'run') j.torso.rotation.x = -(j.baseLean + 0.15)
       break
     }
     case 'crouch': {
@@ -352,7 +473,9 @@ function animatePerson(j: PersonJoints, input: AnimInput): void {
       j.hipR.rotation.x = 0.9
       j.kneeL.rotation.x = -1.4
       j.kneeR.rotation.x = -1.4
-      j.torso.rotation.x = j.baseLean + 0.3
+      j.ankleL.rotation.x = 0.5
+      j.ankleR.rotation.x = 0.5
+      j.torso.rotation.x = -(j.baseLean + 0.3)
       if (input.speed > 0) {
         const legAngle = swing * 0.25
         j.hipL.rotation.x += legAngle
@@ -363,12 +486,12 @@ function animatePerson(j: PersonJoints, input: AnimInput): void {
     case 'sit': {
       const chairH = 0.45 * j.scale
       j.root.position.y = -(j.legLen - chairH)
-      // Thighs horizontal, lower legs vertical.
-      j.hipL.rotation.x = -Math.PI / 2
-      j.hipR.rotation.x = -Math.PI / 2
-      j.kneeL.rotation.x = Math.PI / 2
-      j.kneeR.rotation.x = Math.PI / 2
-      j.torso.rotation.x = j.baseLean
+      // Thighs forward and horizontal, lower legs hanging vertical.
+      j.hipL.rotation.x = Math.PI / 2
+      j.hipR.rotation.x = Math.PI / 2
+      j.kneeL.rotation.x = -Math.PI / 2
+      j.kneeR.rotation.x = -Math.PI / 2
+      j.torso.rotation.x = -j.baseLean
       break
     }
     case 'lie': {
@@ -379,35 +502,44 @@ function animatePerson(j: PersonJoints, input: AnimInput): void {
       break
     }
     case 'fall': {
-      // Fallen backward, arms up.
+      // Fallen backward, arms thrown up over the head.
       j.root.rotation.x = 1.4
       j.root.position.y = 0.25 * j.scale
       j.root.position.z = -j.legLen * 0.3
-      j.shoulderL.rotation.x = -2.2
-      j.shoulderR.rotation.x = -2.2
-      j.hipL.rotation.x = 0.3
-      j.hipR.rotation.x = -0.2
+      j.shoulderL.rotation.x = 2.2
+      j.shoulderR.rotation.x = 2.2
+      j.hipL.rotation.x = -0.3
+      j.hipR.rotation.x = 0.2
       break
     }
   }
 
-  // Manual pose offsets on top of the gait (fight/dance blocking).
+  // Manual pose offsets on top of the gait (fight/dance blocking, pose keys).
   const ov = input.overrides
   if (ov) {
-    j.shoulderL.rotation.x += ov.shoulderLX ?? 0
-    j.shoulderR.rotation.x += ov.shoulderRX ?? 0
-    j.shoulderL.rotation.z += ov.shoulderLZ ?? 0
-    j.shoulderR.rotation.z -= ov.shoulderRZ ?? 0
-    j.elbowL.rotation.x -= ov.elbowL ?? 0
-    j.elbowR.rotation.x -= ov.elbowR ?? 0
-    j.hipL.rotation.x += ov.hipLX ?? 0
-    j.hipR.rotation.x += ov.hipRX ?? 0
+    j.shoulderL.rotation.x -= ov.shoulderLX ?? 0
+    j.shoulderR.rotation.x -= ov.shoulderRX ?? 0
+    j.shoulderL.rotation.z -= ov.shoulderLZ ?? 0
+    j.shoulderR.rotation.z += ov.shoulderRZ ?? 0
+    j.elbowL.rotation.x += ov.elbowL ?? 0
+    j.elbowR.rotation.x += ov.elbowR ?? 0
+    j.wristL.rotation.x += ov.wristL ?? 0
+    j.wristR.rotation.x += ov.wristR ?? 0
+    j.hipL.rotation.x -= ov.hipLX ?? 0
+    j.hipR.rotation.x -= ov.hipRX ?? 0
+    j.hipL.rotation.z -= ov.hipLZ ?? 0
+    j.hipR.rotation.z += ov.hipRZ ?? 0
     j.kneeL.rotation.x -= ov.kneeL ?? 0
     j.kneeR.rotation.x -= ov.kneeR ?? 0
-    j.torso.rotation.x += ov.torsoX ?? 0
+    j.ankleL.rotation.x -= ov.ankleL ?? 0
+    j.ankleR.rotation.x -= ov.ankleR ?? 0
+    j.torso.rotation.x -= ov.torsoX ?? 0
     j.torso.rotation.y += ov.torsoY ?? 0
-    j.head.rotation.x += ov.headX ?? 0
+    j.torso.rotation.z += ov.torsoZ ?? 0
+    j.head.rotation.x -= ov.headX ?? 0
     j.head.rotation.y += ov.headY ?? 0
+    j.head.rotation.z += ov.headZ ?? 0
+    j.root.position.y += ov.bodyY ?? 0
   }
 }
 

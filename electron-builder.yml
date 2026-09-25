@@ -10,6 +10,9 @@ files:
   - node_modules/ffmpeg-static/**
 asarUnpack:
   - node_modules/ffmpeg-static/**
+# Swap in the ffmpeg binary for the TARGET OS/arch (npm only installs the
+# build machine's) — required for the Windows .exe and the Intel DMG.
+afterPack: build/ffmpeg-hook.cjs
 mac:
   category: public.app-category.video
   icon: build/icon.icns
@@ -20,7 +23,24 @@ mac:
   # identity + notarize (Apple Developer ID) — see README "Sharing builds".
   identity: null
 win:
-  target: nsis
+  icon: build/icon.png
+  target:
+    - target: nsis
+      arch: [x64]
+    - target: portable
+      arch: [x64]
+  # Unsigned by default: Windows SmartScreen shows "More info → Run anyway".
+  # For distribution, add a code-signing certificate (win.signtoolOptions).
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: Blockout
+  artifactName: ${productName}-${version}-Setup.${ext}
+portable:
+  artifactName: ${productName}-${version}-Portable.${ext}
 linux:
   target: AppImage
   category: Video

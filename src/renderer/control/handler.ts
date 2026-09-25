@@ -14,6 +14,7 @@ import { renderStillPngForTest } from '../export/exporter'
 import { getSceneManager } from '../export/scene-access'
 import type { AspectId, GaitId } from '@engine/types'
 import type { FramingKind } from '../bus'
+import { JOINT_DEFS, POSE_PRESETS, evaluatePoseKeys, jointFromDisplay, jointDef, sortPoseKeys } from '@engine/pose'
 
 type Params = Record<string, unknown>
 type ControlResult = { ok: boolean; data?: unknown; error?: string }
@@ -166,6 +167,7 @@ async function execute(action: string, params: Params): Promise<unknown> {
           scene.entities = scene.entities.filter((e) => e.id !== entityId)
           for (const take of scene.blocking) {
             take.tracks = take.tracks.filter((t) => t.entityId !== entityId)
+            if (take.poses) take.poses = take.poses.filter((p) => p.entityId !== entityId)
           }
           for (const sh of scene.shots) {
             if (sh.camera.mountEntityId === entityId) delete sh.camera.mountEntityId
@@ -420,6 +422,38 @@ async function execute(action: string, params: Params): Promise<unknown> {
       s.setSelection({ kind: 'entity', entityId })
       requireManager().snapSelectionToGround()
       return { snapped: entityId }
+    }
+
+    case 'list_pose_joints':
+      return {
+        joints: JOINT_DEFS.map((d) => ({ key: d.key, label: d.label, group: d.group, min: d.min, max: d.max, unit: d.unit })),
+        presets: POSE_PRESETS.map((p) => ({ id: p.id, name: p.name }))
+      }
+
+    case 'set_pose_key': {
+      requireDoc()
+      const entityId = str(params, 'entityId') ?? ''
+      const entity = s.scene()?.entities.find((e) => e.id === entityId)
+      if (!entity) throw new Error(`No entity "${entityId}".`)
+      if (!entity.assetId.startsWith('person.')) throw new Error('Pose keys apply to people only.')
+      const t = Math.max(0, flt(params, 'time') ?? s.time)
+      const presetId = str(params, 'presetId')
+      const preset = presetId ? POSE_PRESETS.find((p) => p.id === presetId) : undefined
+      if (presetId && !preset) throw new Error(`No pose preset "${presetId}" — see list_pose_joints.`)
+      // Start from the preset, or from the pose already playing at t (merge).
+      const track = s.poseTrack(entityId)
+      const current = track ? (evaluatePoseKeys(sortPoseKeys(track.keys), t) ?? {}) : {}
+      const joints: Record<string, number> = preset ? { ...preset.joints } : params.merge === false ? {} : { ...current }
+      const raw = params.joints
+      if (raw && typeof raw === 'object') {
+        for (const [key, v] of Object.entries(raw as Record<string, unknown>)) {
+          if (!jointDef(key)) throw new Error(`Unknown joint "${key}" — see list_pose_joints.`)
+          if (typeof v !== 'number' || !isFinite(v)) throw new Error(`Joint "${key}" needs a number.`)
+          joints[key] = jointFromDisplay(key, v)
+        }
+      }
+      s.setPoseKey(entityId, t, joints)
+      return { entityId, time: t, keys: useStore.getState().poseTrack(entityId)?.keys.length ?? 0 }
     }
 
     case 'set_time':

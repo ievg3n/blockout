@@ -16,6 +16,9 @@ import { MOTION_PRESETS } from '@engine/motions'
 import { ACTION_PRESETS } from '@engine/action-presets'
 import type { AspectId } from '@engine/types'
 
+// Platform class drives OS-specific chrome (window-button space in the titlebar).
+document.documentElement.classList.add(`platform-${window.blockout?.platform ?? 'unknown'}`)
+
 // Automation surface for the e2e smoke test and for AI-agent driving —
 // not a public API; see AGENTS.md.
 ;(window as unknown as Record<string, unknown>).__blockout = {

@@ -184,8 +184,13 @@ export async function analyzeReference(filePath: string): Promise<AnalyzeResult>
     const data = bytes.toString('base64')
 
     const client = new Anthropic({ apiKey: await resolveApiKey() })
-    const response = await client.messages.create({
-      model: 'claude-opus-4-8',
+    // Server-side fallback: if Opus 5's safety classifiers decline the
+    // image, the API re-runs it on Anthropic's recommended model instead of
+    // returning a bare refusal.
+    const response = await client.beta.messages.create({
+      model: 'claude-opus-5',
+      betas: ['server-side-fallback-2026-07-01'],
+      fallbacks: 'default',
       max_tokens: 16000,
       thinking: { type: 'adaptive' },
       system: buildSystemPrompt(),

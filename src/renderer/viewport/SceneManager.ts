@@ -25,10 +25,12 @@ import {
 import { entityHeight } from '@engine/assets'
 import { headingOf } from '@engine/path'
 import { CAMERA_MOVE_PRESETS } from '@engine/camera-moves'
+import { addJoints, evaluatePoseKeys, sortPoseKeys } from '@engine/pose'
 import type { Entity, LightingPresetId, Scene as DocScene, Shot } from '@engine/types'
 import { useStore, selectedEntityIds } from '../store'
 import { on } from '../bus'
 import { buildAsset, markMesh, labelSprite, type BuiltAsset } from './builders'
+import { POSE_BONES, POSE_HANDLES, solvePoseIk, type PoseHandleDef } from './pose-ik'
 
 const RAD2DEG = 180 / Math.PI
 
@@ -146,6 +148,28 @@ export class SceneManager {
   private recPrevFrame = 0
   private savedOrbitSpeeds: { rotate: number; pan: number; zoom: number } | null = null
 
+  /* Pose tool: joint handles + skeleton on the selected person (editor chrome). */
+  private poseGroup = new THREE.Group()
+  private poseHandleMeshes = new Map<string, THREE.Mesh>()
+  private poseBones: THREE.LineSegments
+  /** Handle under the pointer (hover highlight). */
+  private poseHover: string | null = null
+  /** In-flight limb drag. */
+  private poseDrag: {
+    entityId: string
+    handle: PoseHandleDef
+    plane: THREE.Plane
+    /** Pointer-to-handle offset at grab time, so the limb doesn't jump. */
+    grabOffset: THREE.Vector3
+    input: import('./builders').AnimInput
+    target: 'key' | 'static'
+    time: number
+    pointerId: number
+    moved: boolean
+  } | null = null
+  /** Live limb values while dragging: overrides = base + layer. */
+  private livePose: { entityId: string; base: Record<string, number>; layer: Record<string, number> } | null = null
+
   constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true })
@@ -213,6 +237,11 @@ export class SceneManager {
     this.selectionBox.visible = false
     this.scene.add(this.selectionBox)
 
+    // Pose-tool chrome lives in the overlay, so exports never see it.
+    this.poseBones = this.buildPoseChrome()
+    this.poseGroup.visible = false
+    this.overlay.add(this.poseGroup)
+
     // Gizmo
     this.transform = new TransformControls(this.freeCam, canvas)
     this.transform.setTranslationSnap(0.05)
@@ -227,6 +256,8 @@ export class SceneManager {
 
     canvas.addEventListener('pointerdown', this.onPointerDown)
     canvas.addEventListener('pointermove', this.onPointerMove)
+    canvas.addEventListener('pointerup', this.onPointerUp)
+    canvas.addEventListener('pointercancel', this.onPointerUp)
     canvas.addEventListener('wheel', this.onWheel, { passive: false })
     window.addEventListener('keydown', this.onKeyDown)
 
@@ -240,7 +271,13 @@ export class SceneManager {
         ) {
           this.syncFromStore()
         }
-        if (state.selection !== prev.selection || state.mode !== prev.mode) {
+        if (
+          state.selection !== prev.selection ||
+          state.mode !== prev.mode ||
+          state.poseMode !== prev.poseMode ||
+          state.lookThrough !== prev.lookThrough
+        ) {
+          if (this.poseDrag && (state.selection !== prev.selection || !state.poseMode)) this.cancelPoseDrag()
           this.syncSelection()
         }
         if (state.recording !== prev.recording) {
@@ -281,6 +318,8 @@ export class SceneManager {
     this.unsubscribers.forEach((u) => u())
     this.canvas.removeEventListener('pointerdown', this.onPointerDown)
     this.canvas.removeEventListener('pointermove', this.onPointerMove)
+    this.canvas.removeEventListener('pointerup', this.onPointerUp)
+    this.canvas.removeEventListener('pointercancel', this.onPointerUp)
     this.canvas.removeEventListener('wheel', this.onWheel)
     window.removeEventListener('keydown', this.onKeyDown)
     this.controls.dispose()
@@ -315,6 +354,190 @@ export class SceneManager {
 
   private currentState() {
     return useStore.getState()
+  }
+
+  private buildPoseChrome(): THREE.LineSegments {
+    const colors = { L: 0x3b82f6, R: 0xe5484d, C: 0xf5a524 }
+    for (const def of POSE_HANDLES) {
+      const mesh = new THREE.Mesh(
+        new THREE.SphereGeometry(def.id.startsWith('hand') || def.id.startsWith('foot') || def.id === 'head' ? 0.055 : 0.042, 16, 12),
+        new THREE.MeshBasicMaterial({ color: colors[def.side], depthTest: false, transparent: true, opacity: 0.95 })
+      )
+      mesh.renderOrder = 1000
+      mesh.userData.poseHandle = def.id
+      mesh.userData.baseColor = colors[def.side]
+      this.poseHandleMeshes.set(def.id, mesh)
+      this.poseGroup.add(mesh)
+    }
+    const geo = new THREE.BufferGeometry()
+    geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(POSE_BONES.length * 6), 3))
+    const bones = new THREE.LineSegments(
+      geo,
+      new THREE.LineBasicMaterial({ color: 0xf5f5f7, depthTest: false, transparent: true, opacity: 0.55 })
+    )
+    bones.renderOrder = 999
+    bones.frustumCulled = false
+    this.poseGroup.add(bones)
+    return bones
+  }
+
+  /** The person the pose tool is editing, if the tool applies right now. */
+  private posedVisual(): EntityVisual | null {
+    const s = this.currentState()
+    if (!s.poseMode || s.lookThrough || s.mode === 'deliver' || s.recording) return null
+    if (s.selection?.kind !== 'entity') return null
+    const visual = this.visuals.get(s.selection.entityId)
+    return visual?.built.rig && !visual.customLoaded ? visual : null
+  }
+
+  /** Place handles and skeleton on the posed person (called every frame). */
+  private updatePoseChrome(): void {
+    const visual = this.posedVisual()
+    this.poseGroup.visible = !!visual
+    if (!visual) return
+    const rig = visual.built.rig!
+    visual.root.updateWorldMatrix(true, true)
+    const s = this.currentState()
+    const active = this.poseDrag?.handle.id ?? s.poseJoint
+    const p = new THREE.Vector3()
+    for (const def of POSE_HANDLES) {
+      const mesh = this.poseHandleMeshes.get(def.id)!
+      def.node(rig).getWorldPosition(p)
+      mesh.position.copy(p)
+      const mat = mesh.material as THREE.MeshBasicMaterial
+      const isActive = def.id === active
+      mat.color.setHex(isActive ? 0xffffff : (mesh.userData.baseColor as number))
+      mesh.scale.setScalar(isActive ? 1.45 : def.id === this.poseHover ? 1.3 : 1)
+    }
+    const pos = this.poseBones.geometry.getAttribute('position') as THREE.BufferAttribute
+    const a = new THREE.Vector3()
+    const b = new THREE.Vector3()
+    POSE_BONES.forEach((bone, i) => {
+      const [na, nb] = bone(rig)
+      na.getWorldPosition(a)
+      nb.getWorldPosition(b)
+      pos.setXYZ(i * 2, a.x, a.y, a.z)
+      pos.setXYZ(i * 2 + 1, b.x, b.y, b.z)
+    })
+    pos.needsUpdate = true
+  }
+
+  /** Nearest pose handle within a few pixels of the pointer (screen-space pick). */
+  private pickPoseHandle(e: PointerEvent): PoseHandleDef | null {
+    if (!this.poseGroup.visible) return null
+    const rect = this.canvas.getBoundingClientRect()
+    let best: PoseHandleDef | null = null
+    let bestD = 16 // px
+    const v = new THREE.Vector3()
+    for (const def of POSE_HANDLES) {
+      const mesh = this.poseHandleMeshes.get(def.id)!
+      v.copy(mesh.position).project(this.freeCam)
+      if (v.z > 1) continue
+      const x = ((v.x + 1) / 2) * rect.width + rect.left
+      const y = ((1 - v.y) / 2) * rect.height + rect.top
+      const d = Math.hypot(x - e.clientX, y - e.clientY)
+      if (d < bestD) {
+        bestD = d
+        best = def
+      }
+    }
+    return best
+  }
+
+  /** Current value of the layer a pose drag edits, plus everything under it. */
+  private poseLayers(entityId: string, t: number): { target: 'key' | 'static'; base: Record<string, number>; layer: Record<string, number> } {
+    const s = this.currentState()
+    const visual = this.visuals.get(entityId)
+    const statics: Record<string, number> = {}
+    for (const [k, v] of Object.entries(visual?.entity.params ?? {})) {
+      if (k.startsWith('joint_') && typeof v === 'number') statics[k.slice(6)] = v
+    }
+    const es = this.evaluator?.evaluate(t).entities.find((x) => x.entityId === entityId)
+    const track = s.poseTrack(entityId)
+    const keyed = track ? (evaluatePoseKeys(sortPoseKeys(track.keys), t) ?? {}) : {}
+    // es.joints = mark joints + pose keys; peel the pose-key layer back off.
+    const marks: Record<string, number> = { ...(es?.joints ?? {}) }
+    for (const [k, v] of Object.entries(keyed)) marks[k] = (marks[k] ?? 0) - v
+    if (s.mode === 'shoot') {
+      return { target: 'key', base: addJoints(statics, marks) ?? {}, layer: keyed }
+    }
+    return { target: 'static', base: addJoints(marks, keyed) ?? {}, layer: statics }
+  }
+
+  private beginPoseDrag(e: PointerEvent, def: PoseHandleDef, visual: EntityVisual): void {
+    const s = this.currentState()
+    const rig = visual.built.rig!
+    if (s.playing) s.setPlaying(false)
+    s.setPoseJoint(def.id)
+    const time = s.time
+    const { target, base, layer } = this.poseLayers(visual.entity.id, time)
+    const input = { ...(rig.lastInput ?? { gait: 'stand' as const, phase: 0, speed: 0, distance: 0, time }) }
+    delete input.overrides
+    const handlePos = def.node(rig).getWorldPosition(new THREE.Vector3())
+    const normal = this.freeCam.getWorldDirection(new THREE.Vector3()).negate()
+    const plane = new THREE.Plane().setFromNormalAndCoplanarPoint(normal, handlePos)
+    this.raycaster.setFromCamera(this.pointerNdc(e), this.freeCam)
+    const hit = this.raycaster.ray.intersectPlane(plane, new THREE.Vector3())
+    this.poseDrag = {
+      entityId: visual.entity.id,
+      handle: def,
+      plane,
+      grabOffset: hit ? handlePos.clone().sub(hit) : new THREE.Vector3(),
+      input,
+      target,
+      time,
+      pointerId: e.pointerId,
+      moved: false
+    }
+    this.livePose = { entityId: visual.entity.id, base, layer: { ...layer } }
+    this.controls.enabled = false
+    this.canvas.setPointerCapture(e.pointerId)
+  }
+
+  private updatePoseDrag(e: PointerEvent): void {
+    const drag = this.poseDrag
+    const visual = drag ? this.visuals.get(drag.entityId) : undefined
+    if (!drag || !visual?.built.rig || !visual.built.animate || !this.livePose) return
+    this.raycaster.setFromCamera(this.pointerNdc(e), this.freeCam)
+    const hit = this.raycaster.ray.intersectPlane(drag.plane, new THREE.Vector3())
+    if (!hit) return
+    drag.moved = true
+    this.livePose.layer = solvePoseIk({
+      rig: visual.built.rig,
+      animate: visual.built.animate,
+      input: drag.input,
+      base: this.livePose.base,
+      layer: this.livePose.layer,
+      handle: drag.handle,
+      target: hit.add(drag.grabOffset)
+    })
+  }
+
+  private finishPoseDrag(): void {
+    const drag = this.poseDrag
+    const live = this.livePose
+    this.poseDrag = null
+    this.controls.enabled = true
+    if (!drag || !live) {
+      this.livePose = null
+      return
+    }
+    if (this.canvas.hasPointerCapture(drag.pointerId)) this.canvas.releasePointerCapture(drag.pointerId)
+    if (drag.moved) {
+      const s = this.currentState()
+      if (drag.target === 'key') s.setPoseKey(drag.entityId, drag.time, live.layer, true)
+      else s.setStaticPose(drag.entityId, live.layer, true)
+    }
+    this.livePose = null
+  }
+
+  private cancelPoseDrag(): void {
+    if (this.poseDrag && this.canvas.hasPointerCapture(this.poseDrag.pointerId)) {
+      this.canvas.releasePointerCapture(this.poseDrag.pointerId)
+    }
+    this.poseDrag = null
+    this.livePose = null
+    this.controls.enabled = true
   }
 
   private syncFromStore(): void {
@@ -567,6 +790,24 @@ export class SceneManager {
       ((e.clientX - rect.left) / rect.width) * 2 - 1,
       -((e.clientY - rect.top) / rect.height) * 2 + 1
     )
+    if (this.poseDrag) {
+      this.updatePoseDrag(e)
+      return
+    }
+    if (this.poseGroup.visible) {
+      const hover = this.pickPoseHandle(e)?.id ?? null
+      if (hover !== this.poseHover) {
+        this.poseHover = hover
+        this.canvas.style.cursor = hover ? 'grab' : ''
+      }
+    } else if (this.poseHover) {
+      this.poseHover = null
+      this.canvas.style.cursor = ''
+    }
+  }
+
+  private onPointerUp = (): void => {
+    if (this.poseDrag) this.finishPoseDrag()
   }
 
   private onPointerDown = (e: PointerEvent): void => {
@@ -578,6 +819,16 @@ export class SceneManager {
     if (s.mode === 'deliver') return
     // While recording a performance, clicks must not change the selection.
     if (s.recording) return
+    // Pose tool: grabbing a joint handle poses the limb (IK) instead of selecting.
+    const posed = this.posedVisual()
+    if (posed && !s.placingAssetId && !s.placingSequence && !s.droppingMarks) {
+      const def = this.pickPoseHandle(e)
+      if (def) {
+        e.preventDefault()
+        this.beginPoseDrag(e, def, posed)
+        return
+      }
+    }
     const ndc = this.pointerNdc(e)
     this.raycaster.setFromCamera(ndc, s.lookThrough ? this.shotCam : this.freeCam)
 
@@ -754,7 +1005,9 @@ export class SceneManager {
     if (obj && !s.lookThrough && s.mode !== 'deliver') {
       // Entities are transformable in BOTH Stage and Shoot (move/rotate);
       // the camera body likewise (drags commit to the active camera mark).
-      if (isEntitySel) this.transform.attach(obj)
+      // The pose tool owns clicks on a posed person — no move gizmo on top.
+      const posing = s.poseMode && s.selection?.kind === 'entity' && !!this.posedVisual()
+      if (isEntitySel && !posing) this.transform.attach(obj)
       if (s.selection?.kind === 'camera') this.transform.attach(this.cameraBody)
       this.applyGizmoAxisLimits()
     }
@@ -955,6 +1208,7 @@ export class SceneManager {
         }
         for (const take of scene.blocking) {
           take.tracks = take.tracks.filter((t) => !idSet.has(t.entityId))
+          if (take.poses) take.poses = take.poses.filter((p) => !idSet.has(p.entityId))
         }
         // A camera mounted to a deleted entity would silently re-base its
         // local-frame marks to world space — unmount instead.
@@ -1677,13 +1931,17 @@ export class SceneManager {
           }
         }
       }
-      // Mark-keyframed joints (pose-per-mark choreography, interpolated by
-      // the evaluator) layer additively on the entity's static pose offsets.
+      // Mark-keyframed joints and pose keys (interpolated by the evaluator)
+      // layer additively on the entity's static pose offsets.
       if (es.joints) {
         for (const [key, v] of Object.entries(es.joints)) {
           if (v === 0) continue
           ;(overrides ??= {})[key] = (overrides?.[key] ?? 0) + v
         }
+      }
+      // A limb drag in progress shows its live solution until it commits.
+      if (this.livePose?.entityId === es.entityId) {
+        overrides = addJoints(this.livePose.base, this.livePose.layer)
       }
       const stride = GAITS[gait].strideLength * Math.max(visual.entity.transform.scale, 0.2)
       const phase = stride > 0 ? (es.distanceTravelled / stride) % 1 : 0
@@ -1859,6 +2117,7 @@ export class SceneManager {
     }
 
     this.overlay.visible = s.mode !== 'deliver'
+    this.updatePoseChrome()
     // While recording, the free camera IS the shot camera — a body visual
     // at your own eye position would fill the frame.
     this.cameraBody.visible = !s.lookThrough && s.mode !== 'deliver' && !s.recording

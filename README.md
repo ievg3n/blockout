@@ -21,6 +21,7 @@ It is deliberately **not** a 3D art tool. Grey-box mannequins and vehicles at re
 - ✨ **An Animate tab** — 64 character motions (fights, dances, sit/drink/jump, playing cards, squirt-gun) and 25 action paths (plane landings, helicopter orbits, car chases, collapsing debris) always one click away.
 - 🎛️ **27 classic camera moves** — orbits, cranes, drone follows, vertigo dolly-zoom — built around your subject and riding along if it moves.
 - 📦 **Deterministic exports** — the same project renders byte-identical frames on every run. Playback performance never touches the output.
+- 🦴 **Point-by-point limb animation** — press `P` on a person and drag hands, feet, elbows, knees, head, or chest right in the viewport (IK moves the whole limb); each drag keys the pose at the playhead and the limbs blend between keys. Quick poses, mirror, copy/paste, per-key blend curves.
 - 🤖 **Agent-drivable** — a bundled MCP server lets Claude Code, Codex, or any MCP client stage and shoot the scene for you.
 
 ---

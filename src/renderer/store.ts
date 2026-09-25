@@ -6,7 +6,7 @@
  */
 
 import { create } from 'zustand'
-import type { ProjectDoc, Scene, Shot, Entity, V3, GaitId, AspectId } from '@engine/types'
+import type { ProjectDoc, Scene, Shot, Entity, V3, GaitId, AspectId, PoseInterp, PoseTrack } from '@engine/types'
 import {
   createProject,
   createScene,
@@ -21,6 +21,7 @@ import { assetSpec } from '@engine/assets'
 import { newId } from '@engine/ids'
 import { generateSequence, choreographMotion } from '@engine/sequences'
 import { ACTION_PRESETS } from '@engine/action-presets'
+import { compactJoints, upsertPoseKey } from '@engine/pose'
 
 export type Mode = 'stage' | 'shoot' | 'deliver'
 
@@ -77,6 +78,14 @@ interface BlockoutState {
   recording: boolean
   /** How tightly recording follows the mouse: precise = heavy smoothing. */
   recordControl: 'precise' | 'normal' | 'fast'
+  /** Pose tool: drag a selected person's hands/feet/head in the viewport. */
+  poseMode: boolean
+  /** Pose-tool handle last grabbed ('handR', 'kneeL', 'head', …). */
+  poseJoint: string | null
+  /** Copied pose (joint map) for paste onto another key or actor. */
+  poseClipboard: Record<string, number> | null
+  /** Side panel widths in px (drag the panel edges; persisted per machine). */
+  panelWidths: { left: number; right: number; deliver: number }
   playing: boolean
   time: number
   dirty: boolean
@@ -102,6 +111,21 @@ interface BlockoutState {
   setPipSize(size: 'off' | 'small' | 'medium' | 'large'): void
   setRecording(on: boolean): void
   setRecordControl(mode: 'precise' | 'normal' | 'fast'): void
+  setPoseMode(on: boolean): void
+  setPoseJoint(joint: string | null): void
+  setPoseClipboard(joints: Record<string, number> | null): void
+  setPanelWidth(side: 'left' | 'right' | 'deliver', px: number): void
+  /** The current shot's pose track for an entity (null when unkeyed). */
+  poseTrack(entityId: string): PoseTrack | null
+  /** Key a full pose for an entity at time t (updates the key already there). */
+  /** `discrete` = one gesture (a limb drag): its own undo step, never merged. */
+  setPoseKey(entityId: string, time: number, joints: Record<string, number>, discrete?: boolean): void
+  deletePoseKey(entityId: string, keyId: string): void
+  movePoseKey(entityId: string, keyId: string, time: number): void
+  setPoseKeyInterp(entityId: string, keyId: string, interp: PoseInterp): void
+  clearPoseKeys(entityId: string): void
+  /** Replace an entity's static (untimed) limb offsets — Stage-mode posing. */
+  setStaticPose(entityId: string, joints: Record<string, number>, discrete?: boolean): void
   /** Select every mark in one timeline lane (camera or an entity). */
   selectAllMarksInLane(entityId: string | 'camera'): void
   /** Select every mark on every lane of the current shot. */
@@ -176,6 +200,43 @@ interface BlockoutState {
 
 const MAX_UNDO = 100
 
+const PANEL_WIDTHS_KEY = 'blockout.panelWidths'
+export const PANEL_DEFAULTS = { left: 200, right: 264, deliver: 380 }
+const PANEL_LIMITS = {
+  left: { min: 160, max: 520 },
+  right: { min: 240, max: 640 },
+  deliver: { min: 300, max: 760 }
+}
+
+function loadPanelWidths(): { left: number; right: number; deliver: number } {
+  try {
+    const raw = JSON.parse(localStorage.getItem(PANEL_WIDTHS_KEY) ?? 'null') as Partial<
+      Record<keyof typeof PANEL_DEFAULTS, unknown>
+    > | null
+    const pick = (side: keyof typeof PANEL_DEFAULTS): number => {
+      const v = raw?.[side]
+      const { min, max } = PANEL_LIMITS[side]
+      return typeof v === 'number' && Number.isFinite(v) ? Math.min(max, Math.max(min, v)) : PANEL_DEFAULTS[side]
+    }
+    return { left: pick('left'), right: pick('right'), deliver: pick('deliver') }
+  } catch {
+    return { ...PANEL_DEFAULTS }
+  }
+}
+
+/** The shot (main or draft) with this id inside a mutable doc. */
+function findShotIn(doc: ProjectDoc, sceneId: string | null, shotId: string | null): Shot | undefined {
+  const scene = doc.scenes.find((s) => s.id === sceneId)
+  return scene?.shots.find((s) => s.id === shotId) ?? scene?.drafts?.find((s) => s.id === shotId)
+}
+
+/** The blocking take the current shot uses, inside a mutable doc. */
+function takeOf(doc: ProjectDoc, sceneId: string | null, shotId: string | null) {
+  const scene = doc.scenes.find((s) => s.id === sceneId)
+  const shot = findShotIn(doc, sceneId, shotId)
+  return scene?.blocking.find((b) => b.id === shot?.blockingTakeId)
+}
+
 /** Coalesce rapid same-label mutations (slider swipes) into one undo step. */
 let lastMutateLabel = ''
 let lastMutateAt = 0
@@ -205,6 +266,10 @@ export const useStore = create<BlockoutState>((set, get) => ({
   pipSize: 'medium',
   recording: false,
   recordControl: 'normal',
+  poseMode: false,
+  poseJoint: null,
+  poseClipboard: null,
+  panelWidths: loadPanelWidths(),
   helpOpen: false,
   playing: false,
   time: 0,
@@ -286,7 +351,7 @@ export const useStore = create<BlockoutState>((set, get) => ({
     if (get().exportProgress.running) return
     set({ shotId, time: 0, playing: false })
   },
-  setSelection: (selection) => set({ selection, droppingMarks: false }),
+  setSelection: (selection) => set({ selection, droppingMarks: false, poseJoint: null }),
   setPlacingAsset: (placingAssetId) => set({ placingAssetId, placingSequence: null }),
   setPlacingSequence: (placingSequence) => set({ placingSequence, placingAssetId: null }),
   setDroppingMarks: (droppingMarks) => set({ droppingMarks }),
@@ -294,6 +359,99 @@ export const useStore = create<BlockoutState>((set, get) => ({
   setPipSize: (pipSize) => set({ pipSize }),
   setRecording: (recording) => set({ recording }),
   setRecordControl: (recordControl) => set({ recordControl }),
+  setPoseMode: (poseMode) => set({ poseMode, poseJoint: null, droppingMarks: false }),
+  setPoseJoint: (poseJoint) => set({ poseJoint }),
+  setPoseClipboard: (poseClipboard) => set({ poseClipboard }),
+  setPanelWidth(side, px) {
+    const limits = PANEL_LIMITS[side]
+    const next = { ...get().panelWidths, [side]: Math.round(Math.min(limits.max, Math.max(limits.min, px))) }
+    set({ panelWidths: next })
+    try {
+      localStorage.setItem(PANEL_WIDTHS_KEY, JSON.stringify(next))
+    } catch {
+      // Storage unavailable (private mode) — widths just won't persist.
+    }
+  },
+
+  poseTrack(entityId) {
+    const scene = get().scene()
+    const shot = get().shot()
+    const take = scene?.blocking.find((b) => b.id === shot?.blockingTakeId)
+    return take?.poses?.find((p) => p.entityId === entityId) ?? null
+  },
+
+  setPoseKey(entityId, time, joints, discrete) {
+    const { sceneId, shotId } = get()
+    if (discrete) lastMutateLabel = ''
+    get().mutate('pose key', (doc) => {
+      const take = takeOf(doc, sceneId, shotId)
+      if (!take) return
+      take.poses ??= []
+      let track = take.poses.find((p) => p.entityId === entityId)
+      if (!track) {
+        track = { entityId, keys: [] }
+        take.poses.push(track)
+      }
+      upsertPoseKey(track.keys, time, joints)
+    })
+  },
+
+  deletePoseKey(entityId, keyId) {
+    const { sceneId, shotId } = get()
+    get().mutate('delete pose key', (doc) => {
+      const take = takeOf(doc, sceneId, shotId)
+      const track = take?.poses?.find((p) => p.entityId === entityId)
+      if (!take || !track) return
+      track.keys = track.keys.filter((k) => k.id !== keyId)
+      if (track.keys.length === 0) take.poses = take.poses!.filter((p) => p !== track)
+    })
+  },
+
+  movePoseKey(entityId, keyId, time) {
+    const { sceneId, shotId } = get()
+    get().mutate('move pose key', (doc) => {
+      const shot = findShotIn(doc, sceneId, shotId)
+      const track = takeOf(doc, sceneId, shotId)?.poses?.find((p) => p.entityId === entityId)
+      const key = track?.keys.find((k) => k.id === keyId)
+      if (!track || !key) return
+      key.time = Math.min(Math.max(0, time), shot?.duration ?? time)
+      // Landing on another key replaces it — two keys at one instant is ambiguous.
+      track.keys = track.keys.filter((k) => k === key || Math.abs(k.time - key.time) > 1e-4)
+      track.keys.sort((a, b) => a.time - b.time)
+    })
+  },
+
+  setPoseKeyInterp(entityId, keyId, interp) {
+    const { sceneId, shotId } = get()
+    get().mutate('pose key blend', (doc) => {
+      const track = takeOf(doc, sceneId, shotId)?.poses?.find((p) => p.entityId === entityId)
+      const key = track?.keys.find((k) => k.id === keyId)
+      if (!key) return
+      if (interp === 'smooth') delete key.interp
+      else key.interp = interp
+    })
+  },
+
+  clearPoseKeys(entityId) {
+    const { sceneId, shotId } = get()
+    get().mutate('clear pose keys', (doc) => {
+      const take = takeOf(doc, sceneId, shotId)
+      if (take?.poses) take.poses = take.poses.filter((p) => p.entityId !== entityId)
+    })
+  },
+
+  setStaticPose(entityId, joints, discrete) {
+    const sceneId = get().sceneId
+    if (discrete) lastMutateLabel = ''
+    get().mutate('pose joint', (doc) => {
+      const entity = doc.scenes.find((s) => s.id === sceneId)?.entities.find((e) => e.id === entityId)
+      if (!entity) return
+      const params = { ...entity.params }
+      for (const k of Object.keys(params)) if (k.startsWith('joint_')) delete params[k]
+      for (const [k, v] of Object.entries(compactJoints(joints))) params[`joint_${k}`] = v
+      entity.params = params
+    })
+  },
 
   selectAllMarksInLane(entityId) {
     const scene = get().scene()

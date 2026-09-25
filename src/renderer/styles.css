@@ -52,6 +52,10 @@ body {
 
 .titlebar > * { -webkit-app-region: no-drag; }
 
+/* Windows/Linux: no traffic lights on the left; native window buttons overlay the right. */
+.platform-win32 .titlebar,
+.platform-linux .titlebar { padding: 0 150px 0 16px; }
+
 .titlebar .app-name {
   font-weight: 700;
   letter-spacing: 0.04em;
@@ -94,6 +98,7 @@ body {
   display: grid;
   grid-template-columns: 200px 1fr 264px;
   min-height: 0;
+  position: relative;
 }
 
 .main.no-inspector { grid-template-columns: 200px 1fr; }
@@ -120,6 +125,33 @@ body {
 }
 
 .panel.right { border-right: none; border-left: 1px solid var(--border); }
+
+/* Drag handles on the side-panel edges (PanelResizer). */
+.panel-resizer {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 7px;
+  cursor: ew-resize;
+  z-index: 20;
+  touch-action: none;
+}
+.panel-resizer::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 3px;
+  width: 1px;
+  background: transparent;
+  transition: background 0.12s;
+}
+.panel-resizer:hover::after,
+.panel-resizer:focus-visible::after,
+body.resizing-panels .panel-resizer::after { background: var(--accent); width: 2px; left: 2px; }
+.panel-resizer:focus-visible { outline: none; }
+body.resizing-panels { cursor: ew-resize; user-select: none; }
+body.resizing-panels canvas { pointer-events: none; }
 
 .panel-section { padding: 12px; border-bottom: 1px solid var(--border); }
 
@@ -415,7 +447,7 @@ input[type='color'] {
 
 /* ------------------------------- deliver ------------------------------- */
 
-.deliver-layout { display: grid; grid-template-columns: 1fr 380px; height: 100%; min-height: 0; }
+.deliver-layout { display: grid; grid-template-columns: 1fr 380px; height: 100%; min-height: 0; position: relative; }
 .deliver-preview { position: relative; background: #000; min-height: 0; }
 .deliver-preview canvas { display: block; width: 100%; height: 100%; }
 .deliver-panel { background: var(--bg-panel); border-left: 1px solid var(--border); overflow-y: auto; padding: 16px; }
@@ -683,3 +715,55 @@ input[type='color'] {
 @media (max-width: 620px) {
   .help-kbd-grid { grid-template-columns: 1fr; }
 }
+
+/* ------------------------------ pose tool ------------------------------ */
+
+.pose-section .pose-hint {
+  color: var(--text-faint); font-size: 11px; line-height: 1.45; margin-bottom: 10px;
+}
+.pose-section .pose-hint b { color: var(--text-dim); }
+.pose-section kbd {
+  font-family: var(--mono); font-size: 10px; padding: 0 4px; border-radius: 4px;
+  border: 1px solid var(--border-strong); background: var(--bg);
+}
+.pose-key-strip { padding: 6px 7px 10px; }
+.pose-key-rail {
+  position: relative; height: 14px; border-radius: 7px;
+  background: var(--bg); border: 1px solid var(--border);
+}
+.pose-key-diamond {
+  position: absolute; top: 50%; width: 10px; height: 10px; padding: 0;
+  transform: translate(-50%, -50%) rotate(45deg);
+  background: var(--text-dim); border: 1px solid var(--bg); cursor: pointer; z-index: 2;
+}
+.pose-key-diamond.active, .pose-key-diamond:hover { background: var(--accent); }
+.pose-key-playhead {
+  position: absolute; top: -3px; bottom: -3px; width: 2px; margin-left: -1px;
+  background: var(--accent); opacity: 0.8; pointer-events: none;
+}
+.pose-presets { display: grid; grid-template-columns: repeat(auto-fill, minmax(84px, 1fr)); gap: 4px; }
+.pose-presets .btn { padding: 4px; white-space: normal; line-height: 1.2; min-height: 26px; }
+.pose-tools { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; margin: 4px 0 10px; }
+.joint-group { border-top: 1px solid var(--border); padding: 4px 0; }
+.joint-group > summary {
+  cursor: pointer; font-size: 11px; font-weight: 600; color: var(--text-dim);
+  padding: 4px 0; display: flex; align-items: center; gap: 6px;
+}
+.joint-group[open] > summary { color: var(--text); }
+.joint-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); }
+.joint-field { margin-bottom: 6px; }
+.joint-field label { display: flex; justify-content: space-between; }
+.joint-value { font-family: var(--mono); color: var(--text-faint); }
+
+.pose-track .timeline-track-label { color: var(--text-faint); }
+.pose-lane {
+  background: repeating-linear-gradient(90deg, transparent 0 11px, rgba(255, 255, 255, 0.015) 11px 12px);
+}
+.pose-key {
+  position: absolute; top: 50%; width: 12px; height: 12px;
+  transform: translate(-50%, -50%) rotate(45deg);
+  background: var(--bg-raised); border: 1.5px solid var(--text-dim);
+  cursor: ew-resize; z-index: 2; touch-action: none;
+}
+.pose-key:hover { border-color: var(--accent); }
+.pose-key.current { background: var(--accent); border-color: var(--accent); }

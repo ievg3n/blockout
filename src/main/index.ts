@@ -26,7 +26,15 @@ function createWindow(): void {
     minHeight: 700,
     title: 'Blockout',
     backgroundColor: '#111113',
-    titleBarStyle: 'hiddenInset',
+    // macOS: traffic lights inset into the app's own titlebar. Windows/Linux:
+    // hide the native bar but keep native min/max/close as an overlay on the
+    // right (the titlebar CSS reserves room for it — see .platform-win32).
+    ...(process.platform === 'darwin'
+      ? { titleBarStyle: 'hiddenInset' as const }
+      : {
+          titleBarStyle: 'hidden' as const,
+          titleBarOverlay: { color: '#18181b', symbolColor: '#ececf1', height: 43 }
+        }),
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       contextIsolation: true,
@@ -283,7 +291,9 @@ ipcMain.handle(
     child.on('error', (err) => {
       job.dead = true
       const friendly = /ENOENT/.test(String(err))
-        ? 'ffmpeg not found. Reinstall Blockout from the latest DMG (it bundles ffmpeg), or `brew install ffmpeg`.'
+        ? process.platform === 'win32'
+          ? 'ffmpeg not found. Reinstall Blockout from the latest installer (it bundles ffmpeg), or put ffmpeg.exe on your PATH.'
+          : 'ffmpeg not found. Reinstall Blockout from the latest DMG (it bundles ffmpeg), or `brew install ffmpeg`.'
         : String(err)
       job.deadReason = friendly
       mainWindow?.webContents.send('export:closed', jobId, -1, friendly)
@@ -346,7 +356,10 @@ ipcMain.handle(
     const ffmpegPath = await resolveFfmpeg()
     await mkdir(dirname(outPath), { recursive: true })
     const listPath = join(dirname(outPath), `.concat-${Date.now()}.txt`)
-    const listBody = inputPaths.map((p) => `file '${p.replace(/'/g, "'\\''")}'`).join('\n')
+    // Forward slashes: ffmpeg accepts them on Windows and they need no escaping.
+    const listBody = inputPaths
+      .map((p) => `file '${p.replace(/\\/g, '/').replace(/'/g, "'\\''")}'`)
+      .join('\n')
     await writeFile(listPath, listBody, 'utf-8')
     const result = await new Promise<{ ok: boolean; error?: string }>((resolve) => {
       const child = spawn(ffmpegPath, [
