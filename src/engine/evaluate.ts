@@ -1,3 +1,4 @@
+// Modified in 2026 for pose animation and resizable panels; see MODIFICATIONS.md.
 /**
  * The heart of Blockout: state(t).
  *

@@ -18,8 +18,8 @@
  *   knee?      : POSITIVE bends the shin backward.
  *   ankle?     : POSITIVE points the toes down.
  *   torsoX     : POSITIVE leans forward. torsoY: twist (CCW from above).
- *   torsoZ     : POSITIVE bends toward the character's left.
- *   headX      : POSITIVE nods down. headY: turn. headZ: tilt to the left.
+ *   torsoZ     : POSITIVE leans toward the character's right.
+ *   headX      : POSITIVE nods down. headY: turn. headZ: POSITIVE tilts right.
  *   bodyY      : METERS — raise/lower the whole body (jumps, kneeling).
  *
  * Pure: no DOM, no three.js. Interpolation is a function of t only.

@@ -1,3 +1,4 @@
+// Modified for cross-platform Windows support in 2026; see MODIFICATIONS.md.
 /**
  * Shoot-mode bottom timeline: transport, a scrubbable second-ruler, and one
  * lane per moving entity (camera first) with draggable mark pills. Reads and
@@ -21,7 +22,7 @@ function suggestionLabel(suggestion: string): string {
   return g ? g.name.toLowerCase() : suggestion
 }
 
-interface Lane {
+interface TimelineLane {
   key: string
   entityId: string | 'camera'
   label: JSX.Element
@@ -90,7 +91,7 @@ export function Timeline(): JSX.Element {
     title: 'Click: select ALL marks in this lane (⌫ deletes them together)'
   })
 
-  const lanes: Lane[] = []
+  const lanes: TimelineLane[] = []
   lanes.push({
     key: 'camera',
     entityId: 'camera',
@@ -304,7 +305,7 @@ export function Timeline(): JSX.Element {
           className="btn small"
           disabled={!anyMarks}
           onClick={() => useStore.getState().selectAllMarks()}
-          title="Select every mark on every lane (⌘A) — then ⌫ deletes them all, or shift times together in the inspector"
+          title={`Select every mark on every lane (${window.blockout.platform.primaryModifier}A) — then ⌫ deletes them all, or shift times together in the inspector`}
         >
           Select all
         </button>
@@ -401,7 +402,7 @@ export function Timeline(): JSX.Element {
 }
 
 interface LaneProps {
-  lane: Lane
+  lane: TimelineLane
   duration: number
   drag: DragState | null
   selection: ReturnType<typeof useStore.getState>['selection']

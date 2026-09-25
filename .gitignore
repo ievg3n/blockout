@@ -1,3 +1,4 @@
+# Modified for cross-platform Windows support in 2026; see MODIFICATIONS.md.
 node_modules/
 out/
 dist/
@@ -9,4 +10,11 @@ test-results/
 playwright-report/
 coverage/
 *.local
-build/.cache/
+<<<<<<< HEAD
+=======
+vendor/ffmpeg/win-x64/
+vendor/ffmpeg/macos-*/
+
+# iCloud sync duplicates ("file 2.ts") must never be committed
+* [0-9].*
+>>>>>>> origin/main

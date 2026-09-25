@@ -1,3 +1,4 @@
+// Modified in 2026 for pose animation and resizable panels; see MODIFICATIONS.md.
 /**
  * Procedural grey-box builders for the Blockout viewport.
  *
@@ -25,8 +26,9 @@ export interface AnimInput {
   /**
    * Per-joint pose offsets, applied AFTER the gait pose (people only).
    * Radians, except bodyY (meters). Keys and sign conventions: JOINT_DEFS in
-   * engine/pose.ts (shoulder?X negative raises forward, shoulder?Z positive
-   * lifts out, elbow?/knee? positive bends, …).
+   * engine/pose.ts (shoulder?X negative raises forward, shoulder?Z/hip?Z
+   * positive lift out, elbow?/knee? positive bend, torsoZ/headZ positive lean
+   * to the character's right, …).
    */
   overrides?: Record<string, number>
 }
@@ -527,6 +529,7 @@ function animatePerson(j: PersonJoints, input: AnimInput): void {
     j.wristR.rotation.x += ov.wristR ?? 0
     j.hipL.rotation.x -= ov.hipLX ?? 0
     j.hipR.rotation.x -= ov.hipRX ?? 0
+    // Abduction: positive = outward on both sides (mirrored like the arms).
     j.hipL.rotation.z -= ov.hipLZ ?? 0
     j.hipR.rotation.z += ov.hipRZ ?? 0
     j.kneeL.rotation.x -= ov.kneeL ?? 0
@@ -535,10 +538,11 @@ function animatePerson(j: PersonJoints, input: AnimInput): void {
     j.ankleR.rotation.x -= ov.ankleR ?? 0
     j.torso.rotation.x -= ov.torsoX ?? 0
     j.torso.rotation.y += ov.torsoY ?? 0
-    j.torso.rotation.z += ov.torsoZ ?? 0
+    // Lateral lean/tilt: positive = toward the character's right (+X).
+    j.torso.rotation.z -= ov.torsoZ ?? 0
     j.head.rotation.x -= ov.headX ?? 0
     j.head.rotation.y += ov.headY ?? 0
-    j.head.rotation.z += ov.headZ ?? 0
+    j.head.rotation.z -= ov.headZ ?? 0
     j.root.position.y += ov.bodyY ?? 0
   }
 }

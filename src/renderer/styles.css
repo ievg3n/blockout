@@ -1,3 +1,5 @@
+/* Modified for cross-platform Windows support in 2026; see MODIFICATIONS.md. */
+
 /* Blockout design system — dark, quiet chrome; the viewport is the star. */
 
 :root {
@@ -50,11 +52,9 @@ body {
   -webkit-app-region: drag;
 }
 
-.titlebar > * { -webkit-app-region: no-drag; }
+.app:not(.platform-macos) .titlebar { padding-left: 16px; }
 
-/* Windows/Linux: no traffic lights on the left; native window buttons overlay the right. */
-.platform-win32 .titlebar,
-.platform-linux .titlebar { padding: 0 150px 0 16px; }
+.titlebar > * { -webkit-app-region: no-drag; }
 
 .titlebar .app-name {
   font-weight: 700;

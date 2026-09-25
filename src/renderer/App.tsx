@@ -1,3 +1,4 @@
+// Modified for cross-platform Windows support in 2026; see MODIFICATIONS.md.
 /**
  * App shell: welcome screen, titlebar with the three-mode switch, the
  * Stage/Shoot/Deliver layouts, global keyboard map, and autosave.
@@ -13,9 +14,12 @@ import { ProjectRail } from './panels/ProjectRail'
 import { Timeline } from './panels/Timeline'
 import { DeliverPanel } from './panels/DeliverPanel'
 import { Toasts } from './panels/Toasts'
-import { HelpOverlay } from './panels/Help'
+import { HelpOverlay, BlockingCoach } from './panels/Help'
 import { PanelResizer } from './panels/PanelResizer'
 import logoUrl from './assets/logo.png'
+import { DISTRIBUTION } from '../shared/distribution'
+
+const PLATFORM_CLASS = `platform-${window.blockout.platform.platform}`
 
 function CreditLink({ url, children }: { url: string; children: string }): JSX.Element {
   return (
@@ -54,6 +58,12 @@ export function Credits({ compact = false }: { compact?: boolean }): JSX.Element
         <>
           <br />
           Open source under Apache-2.0 — keep this credit when using or forking.
+          {DISTRIBUTION.maintainerCredit && (
+            <>
+              <br />
+              {DISTRIBUTION.maintainerCredit}
+            </>
+          )}
         </>
       )}
     </div>
@@ -66,9 +76,9 @@ function Welcome(): JSX.Element {
   const toast = useStore((s) => s.toast)
 
   const onNew = useCallback(async () => {
-    const folder = await window.blockout.newProjectDialog()
-    if (!folder) return
-    const name = folder.split(/[\\/]/).pop()?.replace(/\.blockout$/, '') || 'Untitled'
+    const project = await window.blockout.newProjectDialog()
+    if (!project) return
+    const { folder, name } = project
     newProject(folder, name)
     const json = currentProjectJson()
     if (json) await window.blockout.saveProject(folder, json)
@@ -206,6 +216,7 @@ function useKeyboard(): void {
         }
         s.setPlacingAsset(null)
         s.setPlacingSequence(null)
+        s.setPlacingChoreography(null)
         s.setDroppingMarks(false)
         s.setSelection(null)
       } else if (e.key >= '1' && e.key <= '9') {
@@ -243,7 +254,7 @@ export function App(): JSX.Element {
 
   if (!doc) {
     return (
-      <div className="app">
+      <div className={`app ${PLATFORM_CLASS}`}>
         <div className="titlebar">
           <span className="app-name">BLOCKOUT</span>
         </div>
@@ -255,7 +266,7 @@ export function App(): JSX.Element {
   }
 
   return (
-    <div className="app">
+    <div className={`app ${PLATFORM_CLASS}`}>
       <div className="titlebar">
         <span className="app-name">BLOCKOUT</span>
         <span style={{ color: 'var(--text-faint)', fontSize: 12 }}>
@@ -315,6 +326,7 @@ export function App(): JSX.Element {
       )}
       <Toasts />
       <HelpOverlay />
+      <BlockingCoach />
     </div>
   )
 }

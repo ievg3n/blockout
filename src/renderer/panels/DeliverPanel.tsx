@@ -1,3 +1,4 @@
+// Modified for cross-platform Windows support in 2026; see MODIFICATIONS.md.
 /**
  * Deliver mode: pick a generator profile, choose passes, export the
  * package, copy the generated prompt, and hand off to Blender/ComfyUI.
@@ -113,6 +114,11 @@ export function DeliverPanel(): JSX.Element {
             Normal
           </button>
         </div>
+        <p style={{ color: 'var(--text-dim)', fontSize: 11, marginTop: 6, lineHeight: 1.5 }}>
+          Physical-sky presets render into the <b>Clean</b> plate (deterministic, byte-reproducible) and
+          are held out of the Depth and Normal passes. Imported 3D scans are a staging aid and stay out
+          of every pass; they&apos;re listed in the package&apos;s <code>metadata.json</code>.
+        </p>
       </div>
 
       <div className="field">
@@ -207,7 +213,7 @@ export function DeliverPanel(): JSX.Element {
           style={{ width: '100%', marginBottom: 14 }}
           onClick={() => void window.blockout.showFolder(progress.lastPackagePath!)}
         >
-          Reveal last export in Finder
+          {window.blockout.platform.isMac ? 'Reveal last export in Finder' : 'Show last export in Folder'}
         </button>
       )}
 

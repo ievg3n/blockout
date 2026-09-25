@@ -1,3 +1,5 @@
+<!-- Modified for cross-platform Windows support in 2026; see MODIFICATIONS.md. -->
+
 # AGENTS.md — running & modifying Blockout with an AI agent
 
 This file is the single source of truth for AI coding agents (Claude Code, Codex, Hermes, OpenClaw, …) working on this repo. `CLAUDE.md` points here.
@@ -17,8 +19,9 @@ npm run typecheck      # strict TS, two projects (renderer+engine, main+e2e)
 npm run lint           # ESLint (zero warnings allowed on main)
 npm test               # Vitest engine unit tests (fast, no GPU)
 npm run smoke          # build + Playwright end-to-end: real export, ffprobe-verified
-npm run package        # macOS DMG into release/
-npm run package:win    # Windows x64 installer + portable .exe into release/ (builds on macOS)
+npm run package:mac    # download+audit pinned FFmpeg pair, then current-architecture macOS DMG
+                       # (add: npm run prepare:ffmpeg:mac -- --build-from-source to rebuild from source)
+npm run package:win    # Windows x64 NSIS installer (run after npm ci on Windows)
 ```
 
 **Definition of done for any change: `npm run typecheck && npm run lint && npm test` green, and `npm run smoke` green if you touched engine/, export/, main/, or SceneManager.**
@@ -38,6 +41,13 @@ src/renderer/   React UI. store.ts (zustand; ALL doc mutations go through
 tests/unit/     Vitest (engine only). tests/e2e/ Playwright (smoke + screenshots).
 assets/         (profiles as code in engine/profiles.ts; 3D assets are procedural)
 ```
+
+## Key subsystems (recent rounds)
+
+- **Motion library** (`src/engine/motions.ts`): 194 motion presets across `fight`/`dance`/`gesture`/`everyday`/`sport`/`stunt`. The rig joint set added `hipLZ`/`hipRZ` (leg abduction — positive swings the leg outward from the midline), `torsoZ` (lateral torso lean, positive = right), and `headZ` (head tilt, positive = right). All default to 0, so existing content renders unchanged; the joint→bone mapping lives in `animatePerson` in `src/renderer/viewport/builders.ts`, sign conventions in the `motions.ts` header. Any test enumerating legal joint names must include the four.
+- **Choreography engine** (`src/engine/choreography.ts`, PURE): `buildRoutine(spec, ctx)` turns a `RoutineSpec` (`dance`/`fight`/`chase`, performers, durationS, seed, style/options) into per-performer marks compatible with `sequences.ts`. Seeded (inline mulberry32 — the caller in the renderer randomizes the default seed, never the engine). Dances use 8-count phrases with formations/canon/mirror; fights are paired attack→reaction exchanges (reactions offset so they land mid-attack, distance re-closes after knockbacks); chases run a serpentine path with scripted near-misses. `mirrorJoints` swaps L/R pairs and flips Y/Z-symmetric channels. Store wiring: `spawnChoreography(spec, at)` (fresh cast) and `choreographSelected(spec)` (retarget selected people). UI: the Library **Choreographer** panel.
+- **3D scans** (`Scene.scans: ScanRef[]`): Gaussian-splat / photogrammetry environments imported via the `scan:import` IPC (`.ply/.splat/.spz/.ksplat` copied into the project `scans/`). Rendered by `@mkkellogg/gaussian-splats-3d` in `SceneManager` (`scansGroup`/`scanVisuals`), transformable from the Inspector Scans section. **Editor-only**: `scansGroup.visible=false` in `renderFrameAt` and `renderTopDown` — worker-based splat sorting can't guarantee byte-deterministic exports, so scans never enter any pass (they are listed in the package `metadata.json`). Schema migration defaults `scans` to `[]` and never throws.
+- **Sky & editor chrome** (`SceneManager`): the `middaySky`/`goldenHourSky`/`blueHourSky` lighting presets drive a `three/examples` `Sky` dome — a deterministic function of `sunAzimuth`/`sunElevation` with fixed turbidity/rayleigh per preset, so it renders byte-identically in the **clean** export and is hidden in the depth/normal passes. Spike-tape marks and path ribbons live in `overlay` sub-groups (`marksGroup`/`pathsGroup`, HUD eye toggles `showMarks`/`showPaths`); selection adds direction chevrons + `t=…s` labels for the picked lane only. The bottom-right `ViewHelper` gizmo and the selected-entity **emissive tint** are editor-only — the gizmo renders in its own corner viewport (never in `this.scene`), and `renderFrameAt` neutralizes the tint for the duration of every pass so selection can't affect exported pixels. The Shoot **Take bar** (Viewport) and **Set your marks** coach (Help/App) are pure compositions of existing store actions.
 
 ## Hard rules
 
@@ -70,12 +80,12 @@ Headless/dialog-free driving: launch with env `BLOCKOUT_SMOKE_DIR=/some/dir` —
 
 Blockout ships an MCP server so you can drive a **running** app from Claude Code, Codex, Hermes, or any MCP client — stage entities, drop marks, reframe, scrub, and grab a viewport screenshot without touching the UI.
 
-**How it works.** On launch the main process starts a localhost-only HTTP control server (`src/main/control.ts`) on a random port with a bearer token, and writes discovery + auth to `~/.config/blockout/control.json` (`{ port, token, pid }`, mode 0600, deleted on quit). The MCP bridge `mcp/blockout-mcp.mjs` (zero-dependency Node ≥18 stdio server) reads that file and forwards each tool call to the control server, which relays it to the renderer over the `control:invoke` / `control:result` IPC pair. Discovery and auth are automatic — nothing to configure, and if the app isn't running the tools return "Blockout isn't running — launch the app first."
+**How it works.** On launch the main process starts a localhost-only HTTP control server (`src/main/control.ts`) on a random port with a bearer token, and writes a protocol-v1 discovery descriptor (`{ protocolVersion, app, appVersion, port, token, pid, startedAt, capabilities }`) under `~/.config/blockout` on macOS/Linux or `%APPDATA%\blockout` on Windows (mode 0600 where supported, deleted on quit). The MCP bridge `mcp/blockout-mcp.mjs` (zero-dependency Node ≥18 stdio server) reads both v1 and legacy descriptors and forwards each tool call to the control server, which relays it to the renderer over the `control:invoke` / `control:result` IPC pair. Discovery and auth are automatic — nothing to configure, and if the app isn't running the tools return "Blockout isn't running — launch the app first."
 
 **Register with Claude Code** (one line — use this repo's absolute path):
 
 ```bash
-claude mcp add blockout -- node /Users/eklpse1/Desktop/blockout/mcp/blockout-mcp.mjs
+claude mcp add blockout -- node /ABSOLUTE/PATH/TO/blockout/mcp/blockout-mcp.mjs
 ```
 
 **Generic stdio config** (Codex, Hermes, or any MCP client that takes a JSON server list):
@@ -85,7 +95,7 @@ claude mcp add blockout -- node /Users/eklpse1/Desktop/blockout/mcp/blockout-mcp
   "mcpServers": {
     "blockout": {
       "command": "node",
-      "args": ["/Users/eklpse1/Desktop/blockout/mcp/blockout-mcp.mjs"]
+      "args": ["/ABSOLUTE/PATH/TO/blockout/mcp/blockout-mcp.mjs"]
     }
   }
 }
@@ -106,11 +116,18 @@ claude mcp add blockout -- node /Users/eklpse1/Desktop/blockout/mcp/blockout-mcp
 | `set_shot` | `name?, duration?, aspect?, fps?` | Update shot settings |
 | `new_shot` | `name?` | New shot, same blocking |
 | `apply_framing` | `kind: 2S\|OTS\|REV\|TOP\|LOW\|DUTCH` | Auto-frame the camera |
+| `list_choreography_options` | — | Choreography vocabulary: kinds, styles, formations, endings |
+| `spawn_choreography` | `kind, performers, durationS?, style?, formation?, canon?, mirror?, formationChange?, ending?, bpm?, seed?, x?, z?, headingDeg?` | Stage a dance/fight/chase — fresh performers + their per-beat blocking |
+| `choreograph_entities` | `entityIds, kind, style?, …` (same routine options) | Retarget existing people into a routine (keeps assets/labels) |
+| `list_motion_presets` | `category?` | The single-performer motion library (`{id,name,category,duration}`) |
+| `import_scan` | `sourcePath` | Import a `.ply/.splat/.spz/.ksplat` scan (editor-only); returns the scan |
+| `set_scan_transform` | `scanId, position?, rotationDeg?, scale?, visible?` | Move/rotate/scale/show-hide an imported scan |
+| `remove_scan` | `scanId` | Remove an imported scan from the scene |
 | `snap_to_ground` | `entityId` | Rest an entity on the ground |
 | `set_time` / `play` / `stop` | `t` / — / — | Scrub, play, stop |
 | `screenshot` | — | Current viewport as a PNG (image result) |
 | `list_presets` / `save_preset` / `apply_preset` | — / `name` / `id` | Global stage presets |
-| `set_reference` | `videoPath, mode?, opacity?` | Attach a reference clip (copied into `refs/`) as a ghost/PIP underlay (Motion Previs handoff) |
+| `set_reference` | `videoPath, handoffVersion?, mode?, opacity?` | Attach a reference clip (copied into `refs/`) as a ghost/PIP underlay. Motion sends handoff v1; missing stays legacy-compatible. |
 | `list_pose_joints` | — | Posable person joints (degrees; `bodyY` meters) + quick-pose presets |
 | `set_pose_key` | `entityId, time?, joints?, presetId?, merge?` | Key a person's limbs at a time (point-by-point hand/leg/head animation) |
 
@@ -123,8 +140,7 @@ claude mcp add blockout -- node /Users/eklpse1/Desktop/blockout/mcp/blockout-mcp
 
 ## Gotchas
 
-- Packaged builds get the ffmpeg binary for the TARGET OS/arch from `build/ffmpeg-hook.cjs` (electron-builder `afterPack`, cached in `build/.cache/`) — `npm install` only fetches the host's.
-- `ffmpeg` resolution order: `BLOCKOUT_FFMPEG` env → bundled `ffmpeg-static` (unpacked from asar) → `ffmpeg` on PATH.
+- `ffmpeg` resolution order: `BLOCKOUT_FFMPEG` env → packaged BtbN executable on Windows → platform candidates → `ffmpeg`/`ffmpeg.exe` on PATH. The rejected nonfree static package is not a dependency.
 - Frames are piped to ffmpeg as **raw RGBA** (`-f rawvideo`, vflipped because WebGL reads bottom-up). Width/height must stay even (h264 yuv420p).
 - `renderFrameAt` intentionally renders twice (GL warm-up determinism) — don't "optimize" that away; the smoke test will fail.
 - The live viewport loop suspends during exports (`SceneManager.suspendLive`).
