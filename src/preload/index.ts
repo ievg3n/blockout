@@ -1,10 +1,11 @@
-// Modified for cross-platform Windows support in 2026; see MODIFICATIONS.md.
+// Modified for cross-platform Windows support and AI connections in 2026; see MODIFICATIONS.md.
 /**
  * Typed IPC bridge. The renderer sees exactly this surface as
  * window.blockout — nothing else from Node.
  */
 
 import { contextBridge, ipcRenderer } from 'electron'
+import type { AgentConfig, AgentEvent, ConnectInfo, KeyProviderId, ProviderId, RemoteState } from '../shared/agent'
 
 export interface PlatformInfo {
   platform: 'macos' | 'windows' | 'linux'
@@ -61,6 +62,28 @@ export interface BlockoutAPI {
     cb: (id: string, action: string, params: unknown) => void
   ): () => void
   controlResult(id: string, result: { ok: boolean; data?: unknown; error?: string }): void
+  /** Agent panel: chat with a model that drives the scene through the control actions. */
+  agentGetConfig(): Promise<AgentConfig>
+  agentSetProvider(provider: ProviderId, model?: string): Promise<AgentConfig>
+  agentSetKey(provider: KeyProviderId, key: string | null): Promise<AgentConfig>
+  agentListModels(provider: ProviderId): Promise<string[]>
+  agentSend(text: string): Promise<{ ok: boolean; error?: string }>
+  agentStop(): Promise<void>
+  agentReset(): Promise<void>
+  agentChatGPTSignIn(): Promise<{ ok: boolean; error?: string; config: AgentConfig }>
+  agentChatGPTCancel(): Promise<void>
+  agentChatGPTSignOut(): Promise<{ revoked: boolean; config: AgentConfig }>
+  onAgentEvent(cb: (event: AgentEvent) => void): () => void
+  /** Other AI apps: MCP bridge locations, client configs, Claude Desktop extension. */
+  connectInfo(): Promise<ConnectInfo>
+  installClaudeDesktop(): Promise<{ ok: boolean; error?: string }>
+  revealClaudeDesktopExtension(): Promise<void>
+  /** Remote MCP endpoint for ChatGPT / claude.ai connectors, published through ngrok. */
+  remoteStatus(): Promise<RemoteState>
+  remoteStart(domain?: string): Promise<RemoteState>
+  remoteStop(): Promise<RemoteState>
+  remoteRotate(): Promise<RemoteState>
+  onRemoteState(cb: (state: RemoteState) => void): () => void
   /** Analyze a reference image/video with Claude and return a scene layout. */
   analyzeReference(filePath: string): Promise<
     | {
@@ -130,7 +153,34 @@ const api: BlockoutAPI = {
   },
   controlResult: (id, result) => ipcRenderer.send('control:result', id, result),
   versions: () => ipcRenderer.invoke('app:versions'),
-  analyzeReference: (filePath) => ipcRenderer.invoke('ai:analyzeReference', filePath)
+  analyzeReference: (filePath) => ipcRenderer.invoke('ai:analyzeReference', filePath),
+  agentGetConfig: () => ipcRenderer.invoke('agent:getConfig'),
+  agentSetProvider: (provider, model) => ipcRenderer.invoke('agent:setProvider', provider, model),
+  agentSetKey: (provider, key) => ipcRenderer.invoke('agent:setKey', provider, key),
+  agentListModels: (provider) => ipcRenderer.invoke('agent:listModels', provider),
+  agentSend: (text) => ipcRenderer.invoke('agent:send', text),
+  agentStop: () => ipcRenderer.invoke('agent:stop'),
+  agentReset: () => ipcRenderer.invoke('agent:reset'),
+  agentChatGPTSignIn: () => ipcRenderer.invoke('agent:chatgptSignIn'),
+  agentChatGPTCancel: () => ipcRenderer.invoke('agent:chatgptCancel'),
+  agentChatGPTSignOut: () => ipcRenderer.invoke('agent:chatgptSignOut'),
+  onAgentEvent: (cb) => {
+    const listener = (_e: unknown, event: AgentEvent) => cb(event)
+    ipcRenderer.on('agent:event', listener)
+    return () => ipcRenderer.removeListener('agent:event', listener)
+  },
+  connectInfo: () => ipcRenderer.invoke('connect:info'),
+  installClaudeDesktop: () => ipcRenderer.invoke('connect:installClaudeDesktop'),
+  revealClaudeDesktopExtension: () => ipcRenderer.invoke('connect:revealClaudeDesktop'),
+  remoteStatus: () => ipcRenderer.invoke('remote:status'),
+  remoteStart: (domain) => ipcRenderer.invoke('remote:start', domain),
+  remoteStop: () => ipcRenderer.invoke('remote:stop'),
+  remoteRotate: () => ipcRenderer.invoke('remote:rotate'),
+  onRemoteState: (cb) => {
+    const listener = (_e: unknown, state: RemoteState) => cb(state)
+    ipcRenderer.on('remote:state', listener)
+    return () => ipcRenderer.removeListener('remote:state', listener)
+  }
 }
 
 contextBridge.exposeInMainWorld('blockout', api)

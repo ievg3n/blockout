@@ -1,8 +1,8 @@
-<!-- Modified for cross-platform Windows support in 2026; see MODIFICATIONS.md. -->
+<!-- Modified for cross-platform Windows support and AI connections in 2026; see MODIFICATIONS.md. -->
 
 # Blockout MCP — drive the app from an AI agent
 
-Blockout ships a small [MCP](https://modelcontextprotocol.io) server so an AI agent — **Claude Code, Codex, Hermes, OpenClaw, or any MCP client** — can drive a **running** copy of the app: stage entities, choreograph camera and actor marks, apply camera moves, scrub the timeline, and pull a viewport screenshot. It's the same set of moves you'd make by hand, exposed as tools.
+Blockout ships a small [MCP](https://modelcontextprotocol.io) server so an AI agent — **Claude Desktop, Claude Code, Codex, Hermes, OpenClaw, ChatGPT, or any MCP client** — can drive a **running** copy of the app: stage entities, choreograph camera and actor marks, apply camera moves, scrub the timeline, and pull a viewport screenshot. It's the same set of moves you'd make by hand, exposed as tools.
 
 This is the agent-integration guide. For the product itself, see the [main README](../README.md).
 
@@ -16,7 +16,7 @@ This is the agent-integration guide. For the product itself, see the [main READM
 ```
 
 - On launch, Blockout's main process starts a **localhost-only HTTP control server** on a **random port** with a **bearer token**, and writes a protocol-v1 descriptor to `~/.config/blockout/control.json` on macOS/Linux or `%APPDATA%\blockout\control.json` on Windows. Legacy `{ port, token, pid }` descriptors remain readable.
-- The bridge **`blockout-mcp.mjs`** is a zero-dependency Node ≥18 stdio server. It reads that file, forwards each `tools/call` to the control server, which relays it to the renderer over the `control:invoke` / `control:result` IPC pair and returns the result.
+- The bridge **`blockout-mcp.mjs`** is a zero-dependency Node ≥18 stdio server. It reads that file, forwards each `tools/call` to the control server, which relays it to the renderer over the `control:invoke` / `control:result` IPC pair and returns the result. The tool catalog (`tools.mjs`) and JSON-RPC handling (`protocol.mjs`) ship next to it and are shared with the in-app Agent panel and the remote connector.
 - **Discovery and auth are automatic** — nothing to configure. The server binds to `127.0.0.1` only and every request must carry the bearer token, so it is not reachable off-machine. The port is random, so there are no port conflicts to manage.
 - **The app must be running.** If it isn't, every tool returns `Blockout isn't running — launch the app first.` Launch with `npm run dev` (or the packaged app) so the control server comes up.
 
@@ -24,7 +24,31 @@ This is the agent-integration guide. For the product itself, see the [main READM
 
 ## Connect
 
-Use an **absolute path** to `blockout-mcp.mjs` in every config below. From a
+The quickest routes live in the app: open the **Agent panel** (`A`) → **⚙ Connections** → *Other AI apps*.
+
+### Claude Desktop (one click)
+
+**Install in Claude Desktop** opens `Blockout.mcpb` — an [MCP Bundle](https://github.com/modelcontextprotocol/mcpb) holding the bridge — in Claude's extension installer. Claude Desktop runs it with its built-in Node, so nothing else is needed. You can also double-click the file yourself:
+
+- macOS: `/Applications/Blockout.app/Contents/Resources/mcp/Blockout.mcpb`
+- Windows: `%LOCALAPPDATA%\Programs\Blockout\resources\mcp\Blockout.mcpb`
+- Source checkout: `npm run build:mcpb` → `mcp/dist/Blockout.mcpb`
+
+Then keep Blockout open with a project and ask Claude, e.g. *“Stage two actors facing each other and frame an over-the-shoulder shot.”*
+
+### ChatGPT and claude.ai (remote connector)
+
+ChatGPT (and claude.ai custom connectors) only connect to MCP servers over public HTTPS, so Blockout can publish an **opt-in** endpoint through your own [ngrok](https://ngrok.com):
+
+1. Install ngrok (`brew install ngrok` / `winget install ngrok.ngrok`), create a free account, and run `ngrok config add-authtoken <token>` once. Optionally reserve your free static domain in the ngrok dashboard so the link never changes.
+2. In Blockout: ⚙ Connections → *ChatGPT · claude.ai* → enter the domain (optional) → **Start remote access** → **Copy URL**.
+3. ChatGPT → Settings → Apps & Connectors → Advanced → **Developer mode** → create a connector with that URL and *No authentication*. (claude.ai: Settings → Connectors → Add custom connector.)
+
+How it is protected: the endpoint is off until you start it and never restarts on its own; the URL carries a 256-bit secret path (**New link** rotates it); tools that read files from your disk (`import_scan`, `set_reference`) are not offered; recent calls are listed in Connections. Anyone holding the link can edit the open scene while it is on — stop it when you are done. Transport: MCP Streamable HTTP, `POST /mcp/<secret>`, plain JSON responses.
+
+### Stdio clients
+
+Use an **absolute path** to `blockout-mcp.mjs` in every config below (Connections → *Claude Code / manual setup* shows ready-to-paste versions for your install; packaged builds can run the bridge with the app's own runtime via `ELECTRON_RUN_AS_NODE=1`, so no separate Node is needed). From a
 source checkout it is `<repo>/mcp/blockout-mcp.mjs`. Packaged locations are:
 
 - macOS: `/Applications/Blockout.app/Contents/Resources/mcp/blockout-mcp.mjs`
@@ -84,7 +108,7 @@ No `env`, no headers, no URL — the bridge discovers the running app on its own
 
 ## Tools
 
-33 tools. Coordinates are in **meters**: `+X` right, `−Z` forward/away from the default camera; **heading 0 faces −Z**; `rotationDeg` / `panDeg` are clockwise seen from above; `tiltDeg` is positive up. Focal lengths are mm on Super 35 (24 wide, 35 normal, 50–85 tight).
+36 tools. Coordinates are in **meters**: `+X` right, `−Z` forward/away from the default camera; **heading 0 faces −Z**; `rotationDeg` / `panDeg` are clockwise seen from above; `tiltDeg` is positive up. Focal lengths are mm on Super 35 (24 wide, 35 normal, 50–85 tight).
 
 | Tool | Params | Does |
 |---|---|---|
@@ -111,6 +135,8 @@ No `env`, no headers, no URL — the bridge discovers the running app on its own
 | `apply_camera_move` | `presetId, entityId?` | Generate a full set of camera marks for a preset, built around a subject and riding along if it moves. Track moves enable aim-lock. Replaces camera marks. |
 | `set_track_subject` | `entityId?` | Aim-lock the shot camera onto an entity (omit `entityId` to turn tracking off). |
 | `snap_to_ground` | `entityId` | Rest an entity on the ground plane. |
+| `list_pose_joints` | — | Posable person joints (key, label, group, range; degrees, `bodyY` meters) and the quick-pose presets. |
+| `set_pose_key` | `entityId, time?, joints?, presetId?, merge?` | Key a person's limbs at a time — point-by-point hand / leg / head animation that interpolates between keys. |
 | `set_time` | `t` | Scrub the playhead to `t` seconds. |
 | `play` / `stop` | — | Start / stop timeline playback. |
 | `screenshot` | — | Capture the current viewport as a PNG (returned as an image result). |
@@ -164,5 +190,7 @@ From here the agent can `set_shot` the aspect/duration, drop `add_actor_mark`s t
 | `node: command not found` in the client | The MCP client's PATH doesn't include Node. Use an absolute node path in the config's `command`, or launch the client from a shell where `node --version` works (Node ≥18). |
 | Client can't find the server | Check the **absolute path** to `blockout-mcp.mjs` in your config, and that it points at *this* repo. |
 | Port conflicts | None to worry about — the control server binds a **random** localhost port each launch and advertises it via the discovery file. |
+| Remote access: “ngrok is not installed” / “needs your authtoken” | Install ngrok and run `ngrok config add-authtoken <token>` in a terminal, then **Start remote access** again. |
+| ChatGPT can't reach the connector | Remote access must be **on** in Connections and the URL must be the current one (after **New link** or a domain change, update the connector). |
 
-The bridge and control server are localhost-only and token-gated; nothing is exposed off your machine.
+The bridge and control server are localhost-only and token-gated; nothing is exposed off your machine unless you start remote access yourself.

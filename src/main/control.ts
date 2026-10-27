@@ -1,4 +1,4 @@
-// Modified for cross-platform Windows support in 2026; see MODIFICATIONS.md.
+// Modified for cross-platform Windows support and AI connections in 2026; see MODIFICATIONS.md.
 /**
  * Localhost-only HTTP control server. External agents (MCP clients, Codex,
  * Hermes, …) drive a running Blockout by POSTing actions here; each action
@@ -17,7 +17,7 @@ import { resolveConfigDir, resolveConfigPath } from '../shared/config-paths'
 import { version as APP_VERSION } from '../../package.json'
 
 interface Pending {
-  resolve: (result: { ok: boolean; data?: unknown; error?: string }) => void
+  resolve: (result: ControlResult) => void
   timer: NodeJS.Timeout
 }
 
@@ -34,12 +34,22 @@ function timeoutForAction(action: string): number {
   return 30_000
 }
 
-export async function startControlServer(getWindow: () => BrowserWindow | null): Promise<void> {
-  const token = crypto.randomBytes(24).toString('hex')
+export type ControlResult = { ok: boolean; data?: unknown; error?: string }
+export type ControlInvoke = (action: string, params: unknown) => Promise<ControlResult>
+
+const TIMEOUT_ERROR = 'timeout — is the app busy?'
+
+/**
+ * Relay a control action to the renderer (src/renderer/control/handler.ts)
+ * and await its reply. Shared by the HTTP control server, the in-app agent,
+ * and the remote MCP endpoint, so every caller drives the same whitelist.
+ * Call ONCE: it registers the single `control:result` listener.
+ */
+export function createControlInvoker(getWindow: () => BrowserWindow | null): ControlInvoke {
   const pending = new Map<string, Pending>()
 
   // Registered ONCE — a per-request listener would leak and double-resolve.
-  ipcMain.on('control:result', (_e, id: string, result: { ok: boolean; data?: unknown; error?: string }) => {
+  ipcMain.on('control:result', (_e, id: string, result: ControlResult) => {
     const p = pending.get(id)
     if (!p) return
     clearTimeout(p.timer)
@@ -47,19 +57,26 @@ export async function startControlServer(getWindow: () => BrowserWindow | null):
     p.resolve(result)
   })
 
-  function invoke(action: string, params: unknown): Promise<{ ok: boolean; data?: unknown; error?: string }> {
+  return (action, params) => {
     const win = getWindow()
     if (!win) return Promise.resolve({ ok: false, error: 'Blockout window not open' })
     const id = crypto.randomUUID()
     return new Promise((resolve) => {
       const timer = setTimeout(() => {
         pending.delete(id)
-        resolve({ ok: false, error: 'timeout — is the app busy?' })
+        resolve({ ok: false, error: TIMEOUT_ERROR })
       }, timeoutForAction(action))
       pending.set(id, { resolve, timer })
       win.webContents.send('control:invoke', id, action, params ?? {})
     })
   }
+}
+
+export async function startControlServer(
+  invoke: ControlInvoke,
+  getWindow: () => BrowserWindow | null
+): Promise<void> {
+  const token = crypto.randomBytes(24).toString('hex')
 
   const server = http.createServer((req, res) => {
     const send = (status: number, body: unknown): void => {
@@ -114,7 +131,7 @@ export async function startControlServer(getWindow: () => BrowserWindow | null):
           return
         }
         void invoke(parsed.action, parsed.params).then((result) => {
-          if (result.error === 'timeout — is the app busy?') {
+          if (result.error === TIMEOUT_ERROR) {
             send(504, result)
           } else {
             send(200, result)

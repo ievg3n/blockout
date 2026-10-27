@@ -29,6 +29,26 @@ Pose animation and editor work added in 2026 in the
   a timeline playhead offset fix.
 - Reference analysis on `claude-opus-5` with server-side refusal fallback.
 
+AI connections added in 2026 in the same fork:
+
+- Agent panel — chat in the studio (new: `src/main/agent/`,
+  `src/renderer/panels/AgentPanel.tsx`, `AiConnections.tsx`,
+  `src/renderer/ai/agent-store.ts`, `src/shared/agent.ts`): Claude via the
+  Anthropic SDK, OpenAI and Sign in with ChatGPT via the Responses API, and
+  Gemini / MiniMax / OpenRouter via OpenAI-compatible Chat Completions, all
+  driving the existing control actions. Keys are encrypted with Electron
+  `safeStorage`.
+- The MCP tool catalog and JSON-RPC handling split out of the bridge into
+  `mcp/tools.mjs` and `mcp/protocol.mjs`; the control relay is shared as
+  `createControlInvoker` in `src/main/control.ts`.
+- Claude Desktop extension (`scripts/build-mcpb.mjs`, `mcp/icon.png`, shipped as
+  `resources/mcp/Blockout.mcpb`) and paste-ready MCP client configs
+  (`src/main/connect.ts`, `src/renderer/panels/ExternalApps.tsx`).
+- Opt-in remote MCP endpoint for ChatGPT / claude.ai connectors published
+  through the user's ngrok (`src/main/remote-mcp.ts`, `remote.ts`, `tunnel.ts`).
+- CI and the macOS release workflow moved from the retiring `macos-14` runner
+  image to `macos-15` (Apple Silicon).
+
 Downstream distributors should append their own branding and behavioral changes
 to this file rather than replacing the original attribution.
 

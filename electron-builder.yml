@@ -1,4 +1,4 @@
-# Modified for cross-platform Windows support in 2026; see MODIFICATIONS.md.
+# Modified for cross-platform Windows support and AI connections in 2026; see MODIFICATIONS.md.
 appId: com.wassermanproductions.blockout
 productName: Blockout
 # Package scripts run redistribution audits before electron-builder. Windows
@@ -19,7 +19,12 @@ extraResources:
     to: mcp
     filter:
       - blockout-mcp.mjs
+      - tools.mjs
+      - protocol.mjs
       - README.md
+  # Claude Desktop extension, built by `npm run build` (scripts/build-mcpb.mjs).
+  - from: mcp/dist/Blockout.mcpb
+    to: mcp/Blockout.mcpb
   - from: LICENSE
     to: licenses/Blockout-Apache-2.0.txt
   - from: NOTICE
