@@ -249,6 +249,7 @@ export function App(): JSX.Element {
 
   const rightTab = useStore((s) => s.rightTab)
   const setRightTab = useStore((s) => s.setRightTab)
+  const remoteOnline = useAgent((s) => s.remote.status === 'online')
 
   useAutosave()
   useKeyboard()
@@ -308,6 +309,7 @@ export function App(): JSX.Element {
           onClick={() => setRightTab(rightTab === 'agent' ? 'inspector' : 'agent')}
         >
           ✦ Agent
+          {remoteOnline && <span className="remote-dot" title="Remote AI access is on (Connections)" />}
         </button>
         <button
           className="btn small"

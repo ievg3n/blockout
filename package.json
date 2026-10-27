@@ -9,7 +9,8 @@
   "scripts": {
     "dev": "node ./node_modules/electron-vite/bin/electron-vite.js dev",
     "start": "node ./node_modules/electron-vite/bin/electron-vite.js preview",
-    "build": "node ./node_modules/electron-vite/bin/electron-vite.js build",
+    "build": "node ./node_modules/electron-vite/bin/electron-vite.js build && npm run build:mcpb",
+    "build:mcpb": "node scripts/build-mcpb.mjs",
     "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.node.json",
     "lint": "eslint src tests",
     "test": "vitest run",

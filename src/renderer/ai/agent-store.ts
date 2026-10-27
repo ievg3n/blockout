@@ -6,7 +6,7 @@
  */
 
 import { create } from 'zustand'
-import type { AgentConfig, AgentEvent, KeyProviderId, ProviderId } from '../../shared/agent'
+import type { AgentConfig, AgentEvent, ConnectInfo, KeyProviderId, ProviderId, RemoteState } from '../../shared/agent'
 
 export type ChatItem =
   | { kind: 'user'; id: string; text: string }
@@ -40,8 +40,15 @@ interface AgentState {
   modelsError: string | null
   signingIn: boolean
   draft: string
+  /** Remote MCP endpoint for ChatGPT / claude.ai connectors. */
+  remote: RemoteState
+  connect: ConnectInfo | null
 
   init(): Promise<void>
+  initRemote(): Promise<void>
+  remoteStart(domain: string): Promise<void>
+  remoteStop(): Promise<void>
+  remoteRotate(): Promise<void>
   setView(view: 'chat' | 'connections'): void
   setDraft(draft: string): void
   send(text: string): Promise<void>
@@ -59,6 +66,7 @@ interface AgentState {
 let seq = 0
 const nextId = (): string => `chat_${++seq}`
 let unsubscribe: (() => void) | null = null
+let unsubscribeRemote: (() => void) | null = null
 
 function applyEvent(items: ChatItem[], event: AgentEvent): ChatItem[] {
   const last = items[items.length - 1]
@@ -97,6 +105,8 @@ export const useAgent = create<AgentState>((set, get) => ({
   modelsError: null,
   signingIn: false,
   draft: '',
+  remote: { status: 'off', activity: [] },
+  connect: null,
 
   async init() {
     if (!unsubscribe) {
@@ -108,6 +118,24 @@ export const useAgent = create<AgentState>((set, get) => ({
     }
     const config = await window.blockout.agentGetConfig()
     set({ config })
+  },
+
+  async initRemote() {
+    unsubscribeRemote ??= window.blockout.onRemoteState((remote) => set({ remote }))
+    const [remote, connect] = await Promise.all([window.blockout.remoteStatus(), window.blockout.connectInfo()])
+    set({ remote, connect })
+  },
+
+  async remoteStart(domain) {
+    set({ remote: await window.blockout.remoteStart(domain) })
+  },
+
+  async remoteStop() {
+    set({ remote: await window.blockout.remoteStop() })
+  },
+
+  async remoteRotate() {
+    set({ remote: await window.blockout.remoteRotate() })
   },
 
   setView: (view) => set({ view }),

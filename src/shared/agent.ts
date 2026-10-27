@@ -37,3 +37,32 @@ export interface AgentConfig {
   /** false when Electron safeStorage cannot encrypt (keys stored in plain text). */
   encryptionAvailable: boolean
 }
+
+/** Where this build keeps the MCP bridge and Claude Desktop extension, plus paste-ready configs. */
+export interface ConnectInfo {
+  packaged: boolean
+  bundlePath: string
+  bundleExists: boolean
+  bridgePath: string
+  /** claude_desktop_config.json / generic stdio client entry. */
+  desktopConfig: string
+  claudeCodeCommand: string
+}
+
+export interface RemoteActivity {
+  tool: string
+  ok: boolean
+  /** Epoch ms. */
+  at: number
+}
+
+/** Remote MCP endpoint (ChatGPT / claude.ai connector) as shown in Connections. */
+export interface RemoteState {
+  status: 'off' | 'starting' | 'online' | 'error'
+  /** Full connector URL (public base + /mcp/<secret>) while online. */
+  url?: string
+  /** Saved fixed ngrok domain, if any. */
+  domain?: string
+  error?: { code: 'missing' | 'auth' | 'domain' | 'outdated' | 'other'; message: string }
+  activity: RemoteActivity[]
+}

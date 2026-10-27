@@ -22,6 +22,9 @@ extraResources:
       - tools.mjs
       - protocol.mjs
       - README.md
+  # Claude Desktop extension, built by `npm run build` (scripts/build-mcpb.mjs).
+  - from: mcp/dist/Blockout.mcpb
+    to: mcp/Blockout.mcpb
   - from: LICENSE
     to: licenses/Blockout-Apache-2.0.txt
   - from: NOTICE

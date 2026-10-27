@@ -12,6 +12,8 @@ import { join, dirname, basename, extname, resolve, sep } from 'path'
 import { registerPresetsIpc } from './presets'
 import { createControlInvoker, startControlServer } from './control'
 import { registerAgentIpc } from './agent'
+import { registerConnectIpc } from './connect'
+import { registerRemoteIpc } from './remote'
 import { friendlyFfmpegError, resolveFfmpeg, terminateProcessTree } from './ffmpeg'
 import { sanitizeName } from '../engine/strings'
 import { ffmpegConcatEntry, normalizeProjectRelativePath } from '../shared/portable-paths'
@@ -61,6 +63,8 @@ app.whenReady().then(() => {
   const invokeControl = createControlInvoker(() => mainWindow)
   void startControlServer(invokeControl, () => mainWindow)
   registerAgentIpc({ invoke: invokeControl, getWindow: () => mainWindow })
+  registerConnectIpc()
+  registerRemoteIpc({ invoke: invokeControl, getWindow: () => mainWindow })
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()
   })
