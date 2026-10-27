@@ -46,6 +46,8 @@ AI connections added in 2026 in the same fork:
   (`src/main/connect.ts`, `src/renderer/panels/ExternalApps.tsx`).
 - Opt-in remote MCP endpoint for ChatGPT / claude.ai connectors published
   through the user's ngrok (`src/main/remote-mcp.ts`, `remote.ts`, `tunnel.ts`).
+- CI and the macOS release workflow moved from the retiring `macos-14` runner
+  image to `macos-15` (Apple Silicon).
 
 Downstream distributors should append their own branding and behavioral changes
 to this file rather than replacing the original attribution.

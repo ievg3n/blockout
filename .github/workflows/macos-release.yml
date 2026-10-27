@@ -1,3 +1,4 @@
+# Modified in 2026 (macos-14 runner retirement); see MODIFICATIONS.md.
 name: macOS release artifact
 
 on:
@@ -18,7 +19,7 @@ jobs:
         include:
           - os: macos-15-intel
             arch: x64
-          - os: macos-14
+          - os: macos-15
             arch: arm64
     runs-on: ${{ matrix.os }}
     steps:

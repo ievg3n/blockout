@@ -1,4 +1,4 @@
-# Modified for cross-platform Windows support in 2026; see MODIFICATIONS.md.
+# Modified for cross-platform Windows support and AI connections in 2026; see MODIFICATIONS.md.
 name: CI
 
 on:
@@ -29,7 +29,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [macos-14, windows-2022]
+        os: [macos-15, windows-2022]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
