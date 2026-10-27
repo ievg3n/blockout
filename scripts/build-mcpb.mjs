@@ -1,4 +1,3 @@
-#!/usr/bin/env node
 /**
  * Build the Claude Desktop extension (MCP Bundle, .mcpb): a zip holding a
  * manifest.json and the zero-dependency stdio bridge. Claude Desktop runs it
