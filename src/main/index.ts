@@ -10,7 +10,7 @@ import { spawn, type ChildProcess } from 'child_process'
 import { mkdir, readFile, writeFile, copyFile, stat, rm } from 'fs/promises'
 import { join, dirname, basename, extname, resolve, sep } from 'path'
 import { registerPresetsIpc } from './presets'
-import { startControlServer } from './control'
+import { createControlInvoker, startControlServer } from './control'
 import { friendlyFfmpegError, resolveFfmpeg, terminateProcessTree } from './ffmpeg'
 import { sanitizeName } from '../engine/strings'
 import { ffmpegConcatEntry, normalizeProjectRelativePath } from '../shared/portable-paths'
@@ -57,7 +57,8 @@ app.whenReady().then(() => {
   if (process.platform === 'win32') app.setAppUserModelId(DISTRIBUTION.appId)
   createWindow()
   registerPresetsIpc()
-  void startControlServer(() => mainWindow)
+  const invokeControl = createControlInvoker(() => mainWindow)
+  void startControlServer(invokeControl, () => mainWindow)
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()
   })
