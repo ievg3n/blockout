@@ -1,4 +1,4 @@
-// Modified in 2026 for pose animation and resizable panels; see MODIFICATIONS.md.
+// Modified in 2026 for pose animation, resizable panels, and the agent panel; see MODIFICATIONS.md.
 /**
  * Application state (zustand). One store owns the document, selection,
  * playback, and undo. All document mutations flow through mutate(), which
@@ -80,6 +80,8 @@ interface BlockoutState {
   pipSize: 'off' | 'small' | 'medium' | 'large'
   /** Help & tutorial overlay. */
   helpOpen: boolean
+  /** Right panel in Stage/Shoot: the context inspector or the AI agent chat. */
+  rightTab: 'inspector' | 'agent'
   /** Spike-tape floor marks visible in the editor (HUD "Marks" eye). */
   showMarks: boolean
   /** Path ribbons + chevrons + time labels visible in the editor (HUD "Paths" eye). */
@@ -146,6 +148,7 @@ interface BlockoutState {
   /** Delete the marks in the current mark/marks selection. */
   deleteSelectedMarks(): void
   setHelpOpen(open: boolean): void
+  setRightTab(tab: 'inspector' | 'agent'): void
   setShowMarks(on: boolean): void
   setShowPaths(on: boolean): void
   setCoachOpen(open: boolean): void
@@ -321,6 +324,7 @@ export const useStore = create<BlockoutState>((set, get) => ({
   poseClipboard: null,
   panelWidths: loadPanelWidths(),
   helpOpen: false,
+  rightTab: 'inspector',
   showMarks: true,
   showPaths: true,
   coachOpen: false,
@@ -560,6 +564,7 @@ export const useStore = create<BlockoutState>((set, get) => ({
     get().toast(n > 1 ? `Deleted ${n} marks.` : 'Mark deleted.', 'info')
   },
   setHelpOpen: (helpOpen) => set({ helpOpen }),
+  setRightTab: (rightTab) => set({ rightTab }),
   setShowMarks: (showMarks) => set({ showMarks }),
   setShowPaths: (showPaths) => set({ showPaths }),
   setCoachOpen: (coachOpen) => set({ coachOpen }),

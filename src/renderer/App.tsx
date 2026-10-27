@@ -1,4 +1,4 @@
-// Modified for cross-platform Windows support in 2026; see MODIFICATIONS.md.
+// Modified for cross-platform Windows support and the agent panel in 2026; see MODIFICATIONS.md.
 /**
  * App shell: welcome screen, titlebar with the three-mode switch, the
  * Stage/Shoot/Deliver layouts, global keyboard map, and autosave.
@@ -16,6 +16,8 @@ import { DeliverPanel } from './panels/DeliverPanel'
 import { Toasts } from './panels/Toasts'
 import { HelpOverlay, BlockingCoach } from './panels/Help'
 import { PanelResizer } from './panels/PanelResizer'
+import { AgentPanel } from './panels/AgentPanel'
+import { useAgent } from './ai/agent-store'
 import logoUrl from './assets/logo.png'
 import { DISTRIBUTION } from '../shared/distribution'
 
@@ -203,6 +205,10 @@ function useKeyboard(): void {
         const current = track ? (evaluatePoseKeys(sortPoseKeys(track.keys), s.time) ?? {}) : {}
         s.setPoseKey(entity.id, s.time, current)
         s.toast(`Pose keyed at ${s.time.toFixed(2)}s.`, 'success')
+      } else if ((e.key === 'a' || e.key === 'A') && !meta) {
+        // Agent panel: chat with an AI model that drives the scene.
+        if (s.mode === 'deliver') return
+        s.setRightTab(s.rightTab === 'agent' ? 'inspector' : 'agent')
       } else if (e.key === '?') {
         s.setHelpOpen(!s.helpOpen)
       } else if (e.key === 'Escape') {
@@ -241,8 +247,16 @@ export function App(): JSX.Element {
   const folder = useStore((s) => s.projectFolder)
   const widths = useStore((s) => s.panelWidths)
 
+  const rightTab = useStore((s) => s.rightTab)
+  const setRightTab = useStore((s) => s.setRightTab)
+
   useAutosave()
   useKeyboard()
+
+  // One conversation per project: opening another project starts fresh.
+  useEffect(() => {
+    if (folder) useAgent.getState().reset()
+  }, [folder])
 
   const onSave = useCallback(async () => {
     const json = currentProjectJson()
@@ -288,6 +302,14 @@ export function App(): JSX.Element {
           Save
         </button>
         <button
+          className={`btn small${rightTab === 'agent' && mode !== 'deliver' ? ' primary' : ''}`}
+          title="Agent: chat with Claude, ChatGPT, Gemini… to stage the scene (A)"
+          disabled={mode === 'deliver'}
+          onClick={() => setRightTab(rightTab === 'agent' ? 'inspector' : 'agent')}
+        >
+          ✦ Agent
+        </button>
+        <button
           className="btn small"
           title="Help: quick start, how-do-I answers, shortcuts (?)"
           onClick={() => useStore.getState().setHelpOpen(true)}
@@ -317,8 +339,21 @@ export function App(): JSX.Element {
             </div>
             {mode === 'shoot' && <Timeline />}
           </div>
-          <div className="panel right">
-            <Inspector />
+          <div className={`panel right${rightTab === 'agent' ? ' agent-open' : ''}`}>
+            <div className="right-tabs" role="tablist">
+              {(['inspector', 'agent'] as const).map((tab) => (
+                <button
+                  key={tab}
+                  role="tab"
+                  aria-selected={rightTab === tab}
+                  className={rightTab === tab ? 'active' : ''}
+                  onClick={() => setRightTab(tab)}
+                >
+                  {tab === 'agent' ? '✦ Agent' : 'Inspector'}
+                </button>
+              ))}
+            </div>
+            {rightTab === 'agent' ? <AgentPanel /> : <Inspector />}
           </div>
           <PanelResizer side="left" />
           <PanelResizer side="right" />

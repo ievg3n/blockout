@@ -11,6 +11,7 @@ import { mkdir, readFile, writeFile, copyFile, stat, rm } from 'fs/promises'
 import { join, dirname, basename, extname, resolve, sep } from 'path'
 import { registerPresetsIpc } from './presets'
 import { createControlInvoker, startControlServer } from './control'
+import { registerAgentIpc } from './agent'
 import { friendlyFfmpegError, resolveFfmpeg, terminateProcessTree } from './ffmpeg'
 import { sanitizeName } from '../engine/strings'
 import { ffmpegConcatEntry, normalizeProjectRelativePath } from '../shared/portable-paths'
@@ -59,6 +60,7 @@ app.whenReady().then(() => {
   registerPresetsIpc()
   const invokeControl = createControlInvoker(() => mainWindow)
   void startControlServer(invokeControl, () => mainWindow)
+  registerAgentIpc({ invoke: invokeControl, getWindow: () => mainWindow })
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()
   })
@@ -206,7 +208,21 @@ ipcMain.handle('shell:showFolder', async (_e, path: string) => {
   shell.showItemInFolder(path)
 })
 
-const EXTERNAL_LINK_ALLOWLIST = new Set(['wassermanproductions.com', 'wasserman.ai'])
+const EXTERNAL_LINK_ALLOWLIST = new Set([
+  'wassermanproductions.com',
+  'wasserman.ai',
+  // Agent panel "get a key" / setup links.
+  'platform.claude.com',
+  'console.anthropic.com',
+  'platform.openai.com',
+  'chatgpt.com',
+  'aistudio.google.com',
+  'platform.minimax.io',
+  'openrouter.ai',
+  'claude.ai',
+  'dashboard.ngrok.com',
+  'ngrok.com'
+])
 
 ipcMain.handle('shell:openExternal', async (_e, url: string) => {
   const parsed = new URL(url)

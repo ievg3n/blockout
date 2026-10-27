@@ -31,10 +31,12 @@
   "dependencies": {
     "@anthropic-ai/sdk": "^0.128.0",
     "@mkkellogg/gaussian-splats-3d": "^0.4.7",
+    "openai": "^7.32.0",
     "three": "^0.170.0",
     "zustand": "^5.0.2"
   },
   "devDependencies": {
+    "@cyclonedx/cyclonedx-npm": "6.0.0",
     "@playwright/test": "^1.49.0",
     "@types/node": "^22.10.0",
     "@types/react": "^18.3.12",
@@ -42,7 +44,6 @@
     "@types/three": "^0.170.0",
     "@typescript-eslint/eslint-plugin": "^8.16.0",
     "@typescript-eslint/parser": "^8.16.0",
-    "@cyclonedx/cyclonedx-npm": "6.0.0",
     "@vitejs/plugin-react": "^6.0.3",
     "electron": "^43.1.0",
     "electron-builder": "^26.15.3",
