@@ -1,4 +1,4 @@
-<!-- Modified for cross-platform Windows support in 2026; see MODIFICATIONS.md. -->
+<!-- Modified for cross-platform Windows support and AI connections in 2026; see MODIFICATIONS.md. -->
 
 <div align="center">
 
@@ -33,7 +33,8 @@ It is deliberately **not** a 3D art tool. Grey-box mannequins and vehicles at re
 - 🌍 **Block inside real places** — import a Gaussian-splat / photogrammetry scan of a location (shot on your phone or any video-to-3D tool) and stage the action inside it. Scans are an editor aid — they never touch the export.
 - 📦 **Deterministic exports** — the same project renders byte-identical frames on every run. Playback performance never touches the output.
 - 🦴 **Point-by-point limb animation** — press `P` on a person and drag hands, feet, elbows, knees, head, or chest right in the viewport (IK moves the whole limb); each drag keys the pose at the playhead and the limbs blend between keys. Quick poses, mirror, copy/paste, per-key blend curves.
-- 🤖 **Agent-drivable** — a bundled MCP server lets Claude Code, Codex, or any MCP client stage and shoot the scene for you.
+- ✦ **Agent panel — chat in the studio** — press `A` and tell the agent what to block. It stages the scene live (every step undoable) on Claude, ChatGPT (sign in with your plan), OpenAI, Gemini, MiniMax, or OpenRouter — bring your own key.
+- 🤖 **Agent-drivable from other apps** — install the Claude Desktop extension in one click, point Claude Code / Codex at the bundled MCP server, or connect ChatGPT and claude.ai through an opt-in remote connector.
 
 ---
 
@@ -98,7 +99,9 @@ Run the take the way a set does: the **Take bar** in Shoot walks Rehearse → Re
 
 ### Agent control
 
-Blockout ships an **MCP server** so an AI agent can drive the running app — stage entities, choreograph marks, reframe, scrub, and grab a viewport screenshot — the same moves you'd make by hand. See **[mcp/README.md](mcp/README.md)** for the full agent-integration guide.
+The **Agent panel** (`A`, or the ✦ Agent tab beside the Inspector) is a chat inside the studio: describe a staging, camera move, or pose and the model carries it out with the same tools an external agent gets, checking its work with viewport screenshots. Connect it under **⚙ Connections** — *Continue with ChatGPT* runs it on a ChatGPT Plus/Pro plan; API keys for Anthropic, OpenAI, Gemini, MiniMax, and OpenRouter are stored encrypted in the system keychain.
+
+Blockout also ships an **MCP server** so other AI apps can drive the running app — stage entities, choreograph marks, reframe, scrub, and grab a viewport screenshot — the same moves you'd make by hand. See **[mcp/README.md](mcp/README.md)** for the full agent-integration guide.
 
 ---
 
@@ -180,7 +183,11 @@ signing/notarization is planned for a stable distribution.
 
 ## Agent control (MCP)
 
-Point **Claude Code, Codex, Hermes, or any MCP client** at the bundled MCP server and it can stage the scene, choreograph marks, reframe the camera, scrub the timeline, and pull a viewport screenshot. Register it with Claude Code in one line:
+Point **Claude Desktop, Claude Code, Codex, Hermes, ChatGPT, or any MCP client** at the bundled MCP server and it can stage the scene, choreograph marks, reframe the camera, scrub the timeline, and pull a viewport screenshot.
+
+- **Claude Desktop** — Agent panel → ⚙ Connections → **Install in Claude Desktop** (an MCP Bundle; Claude's built-in Node runs it, nothing else to install).
+- **ChatGPT / claude.ai** — ⚙ Connections → **Start remote access** publishes a private connector URL through your own [ngrok](https://ngrok.com) (optionally on your fixed domain). Off by default; file-reading tools are disabled remotely.
+- **Claude Code** — one line:
 
 ```bash
 claude mcp add blockout -- node /ABSOLUTE/PATH/TO/blockout/mcp/blockout-mcp.mjs
@@ -194,8 +201,8 @@ default per-user Windows install.
 Discovery and auth are automatic — the app writes a versioned localhost-only
 control descriptor to `~/.config/blockout/control.json` on macOS/Linux or
 `%APPDATA%\blockout\control.json` on Windows. The zero-dependency bridge reads
-both versioned and legacy descriptors. There are **33 tools** (from `get_state`
-and `add_entity` through `spawn_choreography`, `import_scan`, `apply_camera_move`,
+both versioned and legacy descriptors. There are **36 tools** (from `get_state`
+and `add_entity` through `spawn_choreography`, `set_pose_key`, `apply_camera_move`,
 and `screenshot`).
 
 👉 **Full setup, the complete tool table, and a worked session: [mcp/README.md](mcp/README.md).**

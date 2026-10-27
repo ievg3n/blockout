@@ -1,4 +1,4 @@
-// Modified for cross-platform Windows support in 2026; see MODIFICATIONS.md.
+// Modified for cross-platform Windows support and AI connections in 2026; see MODIFICATIONS.md.
 /**
  * Help overlay, redesigned for a filmmaker skimming (not reading):
  *   • Quick start — six visual cards, the whole app at a glance.
@@ -508,11 +508,22 @@ const TASKS: { area: string; items: Task[] }[] = [
         )
       },
       {
+        q: 'How do I chat with an AI that stages the scene?',
+        a: (
+          <>
+            Press <Kbd>A</Kbd> (or the <b>✦ Agent</b> tab) and describe what you want. Under <b>⚙ Connections</b>{' '}
+            choose <b>Continue with ChatGPT</b> or paste an API key (Claude, OpenAI, Gemini, MiniMax,
+            OpenRouter). Every change it makes is undoable.
+          </>
+        )
+      },
+      {
         q: 'How do I let an AI agent drive the app?',
         a: (
           <>
-            Register <b>mcp/blockout-mcp.mjs</b> with Claude Code, Codex, or Hermes — the agent can
-            stage scenes, frame shots, and screenshot the viewport. See AGENTS.md.
+            Agent panel → <b>⚙ Connections</b> → <b>Install in Claude Desktop</b>, or copy the Claude
+            Code / MCP config there. ChatGPT and claude.ai connect through <b>Start remote access</b>{' '}
+            (needs ngrok). See mcp/README.md.
           </>
         )
       }
@@ -528,6 +539,7 @@ const SHORTCUTS: [string, string][] = [
   ['C', 'Look through the shot camera'],
   ['P', 'Pose tool: drag a selected person\'s joints (IK)'],
   ['K', 'Key the current pose at the playhead (Shoot)'],
+  ['A', 'Agent panel: chat with an AI that stages the scene'],
   ['G / R', 'Gizmo: move / rotate'],
   ['⇧-click', 'Multi-select entities, or marks on the timeline'],
   [`${MOD}A / ⇧${MOD}A`, 'Select all marks in the shot / in the current lane'],

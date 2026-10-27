@@ -7,8 +7,10 @@ their respective licenses.
 ## Runtime components
 
 - Electron (MIT) and its Chromium/Node.js components; see Electron's bundled license files.
-- React and React DOM (MIT), Three.js (MIT), Zustand (MIT), and Anthropic
-  TypeScript SDK (MIT).
+- React and React DOM (MIT), Three.js (MIT), Zustand (MIT), Anthropic
+  TypeScript SDK (MIT), and OpenAI Node SDK (Apache-2.0).
+- The Agent panel's remote connector runs the user's own installed `ngrok`
+  agent; ngrok is not bundled or redistributed.
 - Windows x64 packages include the pinned BtbN GPL FFmpeg/FFprobe build
   documented in `resources/ffmpeg/PROVENANCE.md`. The executable pair and
   license remain GPL-3.0-or-later components, not Apache-2.0 components.

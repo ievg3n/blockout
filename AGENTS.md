@@ -1,4 +1,4 @@
-<!-- Modified for cross-platform Windows support in 2026; see MODIFICATIONS.md. -->
+<!-- Modified for cross-platform Windows support and AI connections in 2026; see MODIFICATIONS.md. -->
 
 # AGENTS.md — running & modifying Blockout with an AI agent
 
@@ -34,6 +34,12 @@ src/engine/     PURE TypeScript. No DOM, no three.js, no Electron imports — ev
                 easing, rig noise, gaits, schema, prompts, generator profiles.
                 All logic changes here need unit tests in tests/unit/.
 src/main/       Electron main process: window, IPC, ffmpeg spawning, file I/O.
+                control.ts (control server + shared renderer relay), agent/
+                (Agent panel: session loop, providers, credentials, ChatGPT
+                sign-in), connect.ts (.mcpb/client configs), remote*.ts +
+                tunnel.ts (opt-in remote MCP endpoint over the user's ngrok).
+mcp/            MCP stdio bridge + the ONE tool catalog (tools.mjs) and JSON-RPC
+                handler (protocol.mjs) shared by bridge, agent, remote, .mcpb.
 src/preload/    Typed IPC bridge (window.blockout). Keep in sync with main.
 src/renderer/   React UI. store.ts (zustand; ALL doc mutations go through
                 store.mutate for undo), panels/, viewport/ (SceneManager owns
@@ -74,6 +80,8 @@ Headless/dialog-free driving: launch with env `BLOCKOUT_SMOKE_DIR=/some/dir` —
 - **Add a library asset**: add a catalog entry in `src/engine/assets.ts` (id, height, speedScale, motion), a builder case in `src/renderer/viewport/builders.ts` (grey-box, deterministic, forward −Z), and an emoji thumb in `src/renderer/panels/Library.tsx`.
 - **Add an export pass**: extend `RenderPass` in `SceneManager.renderFrameAt`, wire a toggle in `DeliverPanel.tsx` and the pass loop in `export/exporter.ts`.
 - **Pose / limb animation**: `BlockingTake.poses` holds per-person `PoseKey`s on the shot clock (`src/engine/pose.ts`: interpolation, mirror, presets; tests in `tests/unit/pose.test.ts`). The evaluator layers them on mark joints; the renderer layers both on `joint_*` params. The viewport pose tool (P) lives in `SceneManager` (handles, drag, commit) + `viewport/pose-ik.ts` (DLS IK that drives the real rig via `animate()`); the inspector UI is `panels/PosePanel.tsx`. Pose edits commit through `store.setPoseKey` (Shoot) or `store.setStaticPose` (Stage).
+- **Add an agent/MCP tool**: implement the action in `src/renderer/control/handler.ts` (through store actions, so it's undoable), then add its schema to `TOOLS` in `mcp/tools.mjs` — the single catalog used by the stdio bridge, the Agent panel, the remote endpoint, and the Claude Desktop bundle. If it reads arbitrary local paths, also list it in `FILE_TOOLS` so the agent panel and remote endpoint never expose it.
+- **Add an Agent-panel provider**: implement `ProviderConversation` (`src/main/agent/types.ts`) — append-only history, answer every tool call — next to `providers/anthropic.ts` / `providers/openai.ts`, add the id to `PROVIDER_IDS` (`src/shared/agent.ts`), and wire credentials in `src/main/agent/index.ts`. Unit-test it with a mocked client like `tests/unit/agent-providers.test.ts`.
 - **Change the document schema**: bump nothing lightly — update types in `engine/types.ts`, factories/validation in `engine/schema.ts`, and the round-trip test. Never break `parseProject` on existing files; migrate instead.
 
 ## Agent control (MCP)
@@ -81,6 +89,8 @@ Headless/dialog-free driving: launch with env `BLOCKOUT_SMOKE_DIR=/some/dir` —
 Blockout ships an MCP server so you can drive a **running** app from Claude Code, Codex, Hermes, or any MCP client — stage entities, drop marks, reframe, scrub, and grab a viewport screenshot without touching the UI.
 
 **How it works.** On launch the main process starts a localhost-only HTTP control server (`src/main/control.ts`) on a random port with a bearer token, and writes a protocol-v1 discovery descriptor (`{ protocolVersion, app, appVersion, port, token, pid, startedAt, capabilities }`) under `~/.config/blockout` on macOS/Linux or `%APPDATA%\blockout` on Windows (mode 0600 where supported, deleted on quit). The MCP bridge `mcp/blockout-mcp.mjs` (zero-dependency Node ≥18 stdio server) reads both v1 and legacy descriptors and forwards each tool call to the control server, which relays it to the renderer over the `control:invoke` / `control:result` IPC pair. Discovery and auth are automatic — nothing to configure, and if the app isn't running the tools return "Blockout isn't running — launch the app first."
+
+**Other ways in.** The in-app **Agent panel** (`src/main/agent/`) runs the same catalog minus `FILE_TOOLS` through `createControlInvoker`; **Claude Desktop** installs `resources/mcp/Blockout.mcpb` (built by `npm run build` → `scripts/build-mcpb.mjs`); **ChatGPT / claude.ai** reach an opt-in Streamable HTTP endpoint (`POST /mcp/<secret>`, JSON responses) published through the user's ngrok. Test hooks: `BLOCKOUT_AGENT_FAKE=1` swaps in a scripted provider (`tests/e2e/agent-panel.spec.ts`); `BLOCKOUT_REMOTE_NO_TUNNEL=1` serves the remote endpoint on localhost only (`tests/e2e/remote-mcp.spec.ts`).
 
 **Register with Claude Code** (one line — use this repo's absolute path):
 
